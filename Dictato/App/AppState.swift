@@ -10,6 +10,7 @@ class AppState: ObservableObject {
     static let shared = AppState()
 
     @Published var isRecording = false
+    @Published var isPaused = false
     @Published var isTranscribing = false
     @Published var isModelLoaded = false
     @Published var modelLoadingProgress: String = "Starting..."
@@ -108,6 +109,48 @@ class AppState: ObservableObject {
         } catch {
             log.error("Failed to start recording: \(error)")
         }
+    }
+
+    func togglePause() {
+        guard isRecording || isPaused else { return }
+        if isPaused {
+            resumeRecording()
+        } else {
+            pauseRecording()
+        }
+    }
+
+    private func pauseRecording() {
+        guard let whisperKit, isRecording else { return }
+        whisperKit.audioProcessor.pauseRecording()
+        isRecording = false
+        isPaused = true
+        log.info("Recording paused")
+    }
+
+    private func resumeRecording() {
+        guard let whisperKit, isPaused else { return }
+        do {
+            try whisperKit.audioProcessor.resumeRecordingLive { [weak self] samples in
+                DispatchQueue.main.async {
+                    self?.audioSamples.append(contentsOf: samples)
+                }
+            }
+            isPaused = false
+            isRecording = true
+            log.info("Recording resumed")
+        } catch {
+            log.error("Failed to resume recording: \(error)")
+        }
+    }
+
+    func discardRecording() {
+        guard let whisperKit, isPaused else { return }
+        whisperKit.audioProcessor.stopRecording()
+        audioSamples = []
+        isPaused = false
+        isRecording = false
+        log.info("Recording discarded")
     }
 
     private func stopAndTranscribe() {

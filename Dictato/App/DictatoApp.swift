@@ -74,6 +74,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         stateObservation = Task { @MainActor [weak self] in
             var previousRecording = false
+            var previousPaused = false
             var previousTranscribing = false
 
             while !Task.isCancelled {
@@ -81,15 +82,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let self else { return }
 
                 let recording = appState.isRecording
+                let paused = appState.isPaused
                 let transcribing = appState.isTranscribing
 
-                if recording != previousRecording || transcribing != previousTranscribing {
-                    if recording || transcribing {
-                        showPanel(recording: recording, transcribing: transcribing)
+                if recording != previousRecording || paused != previousPaused || transcribing != previousTranscribing {
+                    if recording || paused || transcribing {
+                        showPanel(recording: recording, isPaused: paused, transcribing: transcribing)
                     } else {
                         hidePanel()
                     }
                     previousRecording = recording
+                    previousPaused = paused
                     previousTranscribing = transcribing
                 }
             }
@@ -97,20 +100,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @MainActor
-    private func showPanel(recording: Bool, transcribing: Bool) {
-        let overlay = RecordingOverlay(isRecording: recording, isTranscribing: transcribing)
+    private func showPanel(recording: Bool, isPaused: Bool, transcribing: Bool) {
+        let overlay = RecordingOverlay(isRecording: recording, isPaused: isPaused, isTranscribing: transcribing)
         if panel == nil {
             panel = FloatingPanel(contentView: overlay)
+            panel?.installKeyMonitor()
         } else {
             let hostingView = NSHostingView(rootView: overlay)
-            hostingView.frame = CGRect(x: 0, y: 0, width: 200, height: 48)
+            hostingView.frame = CGRect(x: 0, y: 0, width: 360, height: 80)
             panel?.contentView = hostingView
+            panel?.setContentSize(hostingView.fittingSize)
         }
         panel?.orderFront(nil)
     }
 
     @MainActor
     private func hidePanel() {
+        panel?.removeKeyMonitor()
         panel?.orderOut(nil)
         panel = nil
     }
