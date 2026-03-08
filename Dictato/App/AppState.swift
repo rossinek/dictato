@@ -40,8 +40,14 @@ class AppState: ObservableObject {
         do {
             modelLoadingProgress = "Downloading model (0%)..."
             log.info("Downloading model...")
+            let downloadBase = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+                .appendingPathComponent("Dictato/Models", isDirectory: true)
+            try FileManager.default.createDirectory(at: downloadBase, withIntermediateDirectories: true)
+            log.info("Model download base: \(downloadBase.path())")
+
             let modelFolder = try await WhisperKit.download(
                 variant: "openai_whisper-large-v3_turbo",
+                downloadBase: downloadBase,
                 progressCallback: { [weak self] progress in
                     let pct = Int(progress.fractionCompleted * 100)
                     Task { @MainActor [weak self] in
@@ -49,12 +55,12 @@ class AppState: ObservableObject {
                     }
                 }
             )
-            log.info("Model downloaded to \(modelFolder.path())")
+            log.info("Model downloaded to \(modelFolder.path)")
 
             modelLoadingProgress = "Compiling model (first launch is slow)..."
             log.info("Loading model into memory...")
             let kit = try await WhisperKit(
-                modelFolder: modelFolder.path(),
+                modelFolder: modelFolder.path,
                 computeOptions: ModelComputeOptions(
                     audioEncoderCompute: .cpuAndNeuralEngine,
                     textDecoderCompute: .cpuAndNeuralEngine
