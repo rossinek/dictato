@@ -1,8 +1,14 @@
 import SwiftUI
+import KeyboardShortcuts
 
 struct SettingsView: View {
     var body: some View {
-        // TODO: Settings UI (shortcut config, model selection, etc.)
-        EmptyView()
+        Form {
+            Section("Keyboard Shortcut") {
+                KeyboardShortcuts.Recorder("Toggle Recording:", name: .toggleRecording)
+            }
+        }
+        .formStyle(.grouped)
+        .frame(width: 350, height: 150)
     }
 }

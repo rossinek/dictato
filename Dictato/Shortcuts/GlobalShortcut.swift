@@ -1,12 +1,5 @@
-import Carbon
+import KeyboardShortcuts
 
-class GlobalShortcutManager {
-    func register() {
-        // TODO: Register global hotkey via CGEvent tap or KeyboardShortcuts package
-        // - Toggle recording on press
-    }
-
-    func unregister() {
-        // TODO: Clean up event tap
-    }
+extension KeyboardShortcuts.Name {
+    static let toggleRecording = Self("toggleRecording", default: .init(.space, modifiers: .option))
 }
