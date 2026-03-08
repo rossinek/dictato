@@ -5,51 +5,81 @@ struct RecordingOverlay: View {
     let isRecording: Bool
     let isPaused: Bool
     let isTranscribing: Bool
+    let modes: [TranscriptionMode]
+    let selectedModeIndex: Int
 
     @State private var pulse = false
 
     var body: some View {
-        VStack(spacing: 4) {
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(dotColor)
-                    .frame(width: 12, height: 12)
-                    .scaleEffect(isPaused ? 1.0 : (pulse ? 1.3 : 1.0))
+        VStack(spacing: 8) {
+            // Main pill
+            VStack(spacing: 4) {
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(dotColor)
+                        .frame(width: 12, height: 12)
+                        .scaleEffect(isPaused ? 1.0 : (pulse ? 1.3 : 1.0))
+                        .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: pulse)
 
-                Text(statusText)
-                    .font(.system(size: 16, weight: .semibold))
+                    Text(statusText)
+                        .font(.system(size: 16, weight: .semibold))
 
-                Spacer()
+                    Spacer()
+                }
+
+                if !isTranscribing {
+                    HStack(spacing: 16) {
+                        ForEach(actions, id: \.label) { action in
+                            HStack(spacing: 4) {
+                                Text(action.key)
+                                    .font(.system(size: 10, weight: .medium, design: .rounded))
+                                    .padding(.horizontal, 5)
+                                    .padding(.vertical, 2)
+                                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 3))
+
+                                Text(action.label)
+                                    .font(.system(size: 11))
+                            }
+                            .foregroundStyle(.secondary)
+                        }
+
+                        Spacer()
+                    }
+                }
             }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 16)
+            .frame(width: 360, height: 90)
+            .glassEffect(.clear.interactive(), in: .capsule)
 
-            if !isTranscribing {
-                HStack(spacing: 16) {
-                    ForEach(actions, id: \.label) { action in
-                        HStack(spacing: 4) {
-                            Text(action.key)
+            // Mode pills — separate row below, centered
+            if modes.count > 1 && !isTranscribing {
+                HStack(spacing: 6) {
+                    ForEach(Array(modes.enumerated()), id: \.element.id) { index, mode in
+                        let isSelected = index == selectedModeIndex
+                        HStack(spacing: 5) {
+                            Text("\(index + 1)")
                                 .font(.system(size: 10, weight: .medium, design: .rounded))
                                 .padding(.horizontal, 5)
                                 .padding(.vertical, 2)
                                 .background(.quaternary, in: RoundedRectangle(cornerRadius: 3))
 
-                            Text(action.label)
-                                .font(.system(size: 11))
+                            Text(mode.name)
+                                .font(.system(size: 11, weight: isSelected ? .bold : .medium))
                         }
-                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .glassEffect(
+                            isSelected ? .clear.interactive() : .clear,
+                            in: .capsule
+                        )
+                        .foregroundStyle(isSelected ? .primary : .secondary)
                     }
-
-                    Spacer()
                 }
             }
         }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 16)
-        .frame(width: 360, height: 90)
-        .glassEffect(.clear.interactive(), in: .capsule)
         .onAppear {
-            withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
-                pulse = true
-            }
+            pulse = true
         }
     }
 

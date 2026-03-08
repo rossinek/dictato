@@ -52,6 +52,9 @@ class FloatingPanel: NSPanel {
         let callback: CGEventTapCallBack = { proxy, type, event, refcon in
             let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
 
+            // Number keys 1-9: keyCodes 18-21 (1-4), 23 (5), 22 (6), 26 (7), 28 (8), 25 (9)
+            let numberKeyMap: [Int64: Int] = [18: 0, 19: 1, 20: 2, 21: 3, 23: 4, 22: 5, 26: 6, 28: 7, 25: 8]
+
             switch keyCode {
             case 53: // Escape
                 Task { @MainActor in
@@ -66,6 +69,12 @@ class FloatingPanel: NSPanel {
                 }
                 return nil
             default:
+                if let modeIndex = numberKeyMap[keyCode] {
+                    Task { @MainActor in
+                        AppState.shared.selectMode(index: modeIndex)
+                    }
+                    return nil
+                }
                 return Unmanaged.passRetained(event)
             }
         }

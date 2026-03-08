@@ -15,13 +15,26 @@ class AppState: ObservableObject {
     @Published var isModelLoaded = false
     @Published var modelLoadingProgress: String = "Starting..."
     @Published var transcriptionHistory: [Transcription] = []
+    @Published var modes: [TranscriptionMode] = []
+    @Published var selectedModeIndex: Int = 0
+
+    var selectedMode: TranscriptionMode {
+        modes[min(selectedModeIndex, modes.count - 1)]
+    }
 
     private var whisperKit: WhisperKit?
     private var audioSamples: [Float] = []
 
     private init() {
         log.info("AppState initialized")
+        loadModes()
         loadHistory()
+    }
+
+    func selectMode(index: Int) {
+        guard index >= 0, index < modes.count else { return }
+        selectedModeIndex = index
+        log.info("Selected mode: \(self.modes[index].name)")
     }
 
     func requestPermissions() async {
@@ -161,14 +174,16 @@ class AppState: ObservableObject {
         isTranscribing = true
 
         let samples = audioSamples
+        let language = selectedMode.language
         audioSamples = []
-        log.info("Transcribing \(samples.count) samples")
+        log.info("Transcribing \(samples.count) samples, language: \(language ?? "auto")")
 
         Task {
             do {
                 let results = try await whisperKit.transcribe(
                     audioArray: samples,
                     decodeOptions: DecodingOptions(
+                        language: language,
                         wordTimestamps: false,
                         chunkingStrategy: .none
                     )
@@ -220,5 +235,38 @@ class AppState: ObservableObject {
         } catch {
             log.debug("No history file found")
         }
+    }
+
+    // MARK: - Mode Persistence
+
+    private var modesFileURL: URL {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let dir = appSupport.appendingPathComponent("Dictato", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("modes.json")
+    }
+
+    func saveModes() {
+        do {
+            let data = try JSONEncoder().encode(modes)
+            try data.write(to: modesFileURL)
+            log.info("Modes saved (\(self.modes.count) items)")
+        } catch {
+            log.error("Failed to save modes: \(error)")
+        }
+    }
+
+    private func loadModes() {
+        do {
+            let data = try Data(contentsOf: modesFileURL)
+            modes = try JSONDecoder().decode([TranscriptionMode].self, from: data)
+        } catch {
+            log.debug("No modes file found, using defaults")
+        }
+        if modes.isEmpty {
+            modes.append(TranscriptionMode.default)
+            saveModes()
+        }
+        log.info("Modes loaded (\(self.modes.count) items)")
     }
 }

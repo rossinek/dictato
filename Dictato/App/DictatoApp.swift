@@ -76,6 +76,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             var previousRecording = false
             var previousPaused = false
             var previousTranscribing = false
+            var previousModeIndex = 0
 
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(100))
@@ -84,8 +85,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 let recording = appState.isRecording
                 let paused = appState.isPaused
                 let transcribing = appState.isTranscribing
+                let modeIndex = appState.selectedModeIndex
 
-                if recording != previousRecording || paused != previousPaused || transcribing != previousTranscribing {
+                if recording != previousRecording || paused != previousPaused || transcribing != previousTranscribing || modeIndex != previousModeIndex {
                     if recording || paused || transcribing {
                         showPanel(recording: recording, isPaused: paused, transcribing: transcribing)
                     } else {
@@ -94,6 +96,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     previousRecording = recording
                     previousPaused = paused
                     previousTranscribing = transcribing
+                    previousModeIndex = modeIndex
                 }
             }
         }
@@ -101,15 +104,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @MainActor
     private func showPanel(recording: Bool, isPaused: Bool, transcribing: Bool) {
-        let overlay = RecordingOverlay(isRecording: recording, isPaused: isPaused, isTranscribing: transcribing)
+        let appState = AppState.shared
+        let overlay = RecordingOverlay(
+            isRecording: recording,
+            isPaused: isPaused,
+            isTranscribing: transcribing,
+            modes: appState.modes,
+            selectedModeIndex: appState.selectedModeIndex
+        )
         if panel == nil {
             panel = FloatingPanel(contentView: overlay)
             panel?.installKeyMonitor()
         } else {
             let hostingView = NSHostingView(rootView: overlay)
-            hostingView.frame = CGRect(x: 0, y: 0, width: 360, height: 80)
             panel?.contentView = hostingView
-            panel?.setContentSize(hostingView.fittingSize)
+            let size = hostingView.fittingSize
+            panel?.setContentSize(NSSize(width: max(360, size.width), height: size.height))
         }
         panel?.orderFront(nil)
     }
