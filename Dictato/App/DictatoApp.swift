@@ -5,7 +5,12 @@ struct DictatoApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     var body: some Scene {
-        // No main window — menu bar only
+        MenuBarExtra("Dictato", systemImage: "mic.fill") {
+            Button("Quit") {
+                NSApplication.shared.terminate(nil)
+            }
+        }
+
         Settings {
             SettingsView()
         }
