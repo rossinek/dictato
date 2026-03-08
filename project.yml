@@ -2,8 +2,8 @@ name: Dictato
 options:
   bundleIdPrefix: com.dictato
   deploymentTarget:
-    macOS: "14.0"
-  xcodeVersion: "16.0"
+    macOS: "26.0"
+  xcodeVersion: "26.0"
 
 packages:
   WhisperKit:
