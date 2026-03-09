@@ -5,6 +5,7 @@ struct RecordingOverlay: View {
     let isRecording: Bool
     let isPaused: Bool
     let isTranscribing: Bool
+    let isPostProcessing: Bool
     let modes: [TranscriptionMode]
     let selectedModeIndex: Int
 
@@ -85,12 +86,14 @@ struct RecordingOverlay: View {
 
     private var dotColor: Color {
         if isPaused { return .yellow }
+        if isPostProcessing { return .blue }
         if isTranscribing { return .orange }
         return .red
     }
 
     private var statusText: String {
         if isPaused { return "Paused" }
+        if isPostProcessing { return "Post-processing..." }
         if isTranscribing { return "Transcribing..." }
         return "Recording..."
     }

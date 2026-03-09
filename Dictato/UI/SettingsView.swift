@@ -3,6 +3,8 @@ import KeyboardShortcuts
 
 struct SettingsView: View {
     @ObservedObject private var appState = AppState.shared
+    @AppStorage("openai_api_key") private var openAIKey = ""
+    @AppStorage("groq_api_key") private var groqKey = ""
 
     fileprivate static let languages: [(String?, String)] = [
         (nil, "Auto-detect"),
@@ -27,6 +29,11 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
+            Section("API Keys") {
+                SecureField("OpenAI API Key", text: $openAIKey)
+                SecureField("Groq API Key", text: $groqKey)
+            }
+
             Section("Keyboard Shortcut") {
                 KeyboardShortcuts.Recorder("Toggle Recording:", name: .toggleRecording)
             }
@@ -67,7 +74,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 500, height: 550)
+        .frame(width: 550, height: 650)
     }
 }
 
@@ -75,6 +82,10 @@ private struct ModeRow: View {
     @Binding var mode: TranscriptionMode
     let canDelete: Bool
     let onDelete: () -> Void
+
+    @State private var availableModels: [String] = []
+    @State private var isLoadingModels = false
+    @State private var modelLoadError: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -99,23 +110,71 @@ private struct ModeRow: View {
                 }
             }
 
-            TextEditor(text: $mode.prompt)
-                .font(.body)
-                .frame(minHeight: 60, maxHeight: 120)
-                .scrollContentBackground(.hidden)
-                .padding(4)
-                .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
-                .overlay(alignment: .topLeading) {
-                    if mode.prompt.isEmpty {
-                        Text("Prompt (for future use)")
-                            .foregroundStyle(.tertiary)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 8)
-                            .allowsHitTesting(false)
-                    }
+            Picker("Post-processing", selection: $mode.provider) {
+                ForEach(LLMProvider.allCases, id: \.self) { provider in
+                    Text(provider.displayName).tag(provider)
                 }
+            }
+
+            if mode.provider != .none {
+                HStack {
+                    Picker("Model", selection: modelBinding) {
+                        Text("Select a model").tag(nil as String?)
+                        ForEach(availableModels, id: \.self) { model in
+                            Text(model).tag(model as String?)
+                        }
+                    }
+
+                    if isLoadingModels {
+                        ProgressView()
+                            .scaleEffect(0.5)
+                    }
+
+                    Button {
+                        fetchModels()
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .buttonStyle(.borderless)
+                }
+
+                if let error = modelLoadError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+
+                TextEditor(text: $mode.prompt)
+                    .font(.body)
+                    .frame(minHeight: 60, maxHeight: 120)
+                    .scrollContentBackground(.hidden)
+                    .padding(4)
+                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+                    .overlay(alignment: .topLeading) {
+                        if mode.prompt.isEmpty {
+                            Text("System prompt for post-processing")
+                                .foregroundStyle(.tertiary)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 8)
+                                .allowsHitTesting(false)
+                        }
+                    }
+            }
         }
         .padding(.vertical, 4)
+        .onChange(of: mode.provider) {
+            availableModels = []
+            mode.model = nil
+            modelLoadError = nil
+            if mode.provider != .none {
+                fetchModels()
+            }
+        }
+        .onAppear {
+            if mode.provider != .none {
+                fetchModels()
+            }
+        }
     }
 
     private var languageBinding: Binding<String?> {
@@ -123,5 +182,30 @@ private struct ModeRow: View {
             get: { mode.language },
             set: { mode.language = $0 }
         )
+    }
+
+    private var modelBinding: Binding<String?> {
+        Binding(
+            get: { mode.model },
+            set: { mode.model = $0 }
+        )
+    }
+
+    private func fetchModels() {
+        guard mode.provider != .none else { return }
+        isLoadingModels = true
+        modelLoadError = nil
+        Task {
+            do {
+                let models = try await LLMService.fetchModels(provider: mode.provider)
+                availableModels = models
+                if let current = mode.model, !models.contains(current) {
+                    mode.model = nil
+                }
+            } catch {
+                modelLoadError = error.localizedDescription
+            }
+            isLoadingModels = false
+        }
     }
 }

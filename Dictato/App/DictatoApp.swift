@@ -76,6 +76,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             var previousRecording = false
             var previousPaused = false
             var previousTranscribing = false
+            var previousPostProcessing = false
             var previousModeIndex = 0
 
             while !Task.isCancelled {
@@ -85,17 +86,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 let recording = appState.isRecording
                 let paused = appState.isPaused
                 let transcribing = appState.isTranscribing
+                let postProcessing = appState.isPostProcessing
                 let modeIndex = appState.selectedModeIndex
 
-                if recording != previousRecording || paused != previousPaused || transcribing != previousTranscribing || modeIndex != previousModeIndex {
-                    if recording || paused || transcribing {
-                        showPanel(recording: recording, isPaused: paused, transcribing: transcribing)
+                if recording != previousRecording || paused != previousPaused || transcribing != previousTranscribing || postProcessing != previousPostProcessing || modeIndex != previousModeIndex {
+                    if recording || paused || transcribing || postProcessing {
+                        showPanel(recording: recording, isPaused: paused, transcribing: transcribing, postProcessing: postProcessing)
                     } else {
                         hidePanel()
                     }
                     previousRecording = recording
                     previousPaused = paused
                     previousTranscribing = transcribing
+                    previousPostProcessing = postProcessing
                     previousModeIndex = modeIndex
                 }
             }
@@ -103,12 +106,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @MainActor
-    private func showPanel(recording: Bool, isPaused: Bool, transcribing: Bool) {
+    private func showPanel(recording: Bool, isPaused: Bool, transcribing: Bool, postProcessing: Bool = false) {
         let appState = AppState.shared
         let overlay = RecordingOverlay(
             isRecording: recording,
             isPaused: isPaused,
             isTranscribing: transcribing,
+            isPostProcessing: postProcessing,
             modes: appState.modes,
             selectedModeIndex: appState.selectedModeIndex
         )

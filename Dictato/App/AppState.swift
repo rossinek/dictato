@@ -17,6 +17,7 @@ class AppState: ObservableObject {
     @Published var transcriptionHistory: [Transcription] = []
     @Published var modes: [TranscriptionMode] = []
     @Published var selectedModeIndex: Int = 0
+    @Published var isPostProcessing = false
 
     var selectedMode: TranscriptionMode {
         modes[min(selectedModeIndex, modes.count - 1)]
@@ -174,17 +175,16 @@ class AppState: ObservableObject {
         isTranscribing = true
 
         let samples = audioSamples
-        let language = selectedMode.language
-        let modeName = selectedMode.name
+        let mode = selectedMode
         audioSamples = []
-        log.info("Transcribing \(samples.count) samples, language: \(language ?? "auto")")
+        log.info("Transcribing \(samples.count) samples, language: \(mode.language ?? "auto")")
 
         Task {
             do {
                 let results = try await whisperKit.transcribe(
                     audioArray: samples,
                     decodeOptions: DecodingOptions(
-                        language: language,
+                        language: mode.language,
                         wordTimestamps: false,
                         chunkingStrategy: .none
                     )
@@ -196,16 +196,41 @@ class AppState: ObservableObject {
                 log.info("Transcription result: \(text)")
 
                 if !text.isEmpty {
-                    let transcription = Transcription(text: text, modeName: modeName)
+                    isTranscribing = false
+
+                    var processedText: String?
+                    let trimmedPrompt = mode.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if mode.provider != .none, let model = mode.model, !trimmedPrompt.isEmpty {
+                        isPostProcessing = true
+                        do {
+                            processedText = try await LLMService.postProcess(
+                                provider: mode.provider,
+                                model: model,
+                                systemPrompt: trimmedPrompt,
+                                userMessage: text
+                            )
+                            log.info("Post-processing result: \(processedText ?? "")")
+                        } catch {
+                            log.error("Post-processing failed: \(error)")
+                        }
+                        isPostProcessing = false
+                    }
+
+                    let transcription = Transcription(
+                        text: text,
+                        postProcessedText: processedText,
+                        modeName: mode.name
+                    )
                     transcriptionHistory.insert(transcription, at: 0)
                     saveHistory()
-                    PasteService.paste(text: text)
+                    PasteService.paste(text: processedText ?? text)
                 }
             } catch {
                 log.error("Transcription failed: \(error)")
             }
 
             isTranscribing = false
+            isPostProcessing = false
         }
     }
 

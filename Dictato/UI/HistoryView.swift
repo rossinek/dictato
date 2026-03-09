@@ -23,11 +23,16 @@ struct HistoryView: View {
 
 private struct HistoryRow: View {
     let item: Transcription
-    @State private var selectedTab = 0
+    @State private var selectedTab: Int
+
+    init(item: Transcription) {
+        self.item = item
+        self._selectedTab = State(initialValue: item.postProcessedText != nil ? 1 : 0)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(item.text)
+            Text(displayedText)
                 .lineLimit(3)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -46,7 +51,7 @@ private struct HistoryRow: View {
 
                 HStack(spacing: 0) {
                     tabButton("Original", tag: 0)
-                    tabButton("Post-processed", tag: 1, disabled: true)
+                    tabButton("Post-processed", tag: 1, disabled: item.postProcessedText == nil)
                 }
                 .background(.quaternary, in: Capsule())
 
@@ -54,7 +59,7 @@ private struct HistoryRow: View {
 
                 Button {
                     NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(item.text, forType: .string)
+                    NSPasteboard.general.setString(displayedText, forType: .string)
                 } label: {
                     Label("Copy", systemImage: "doc.on.doc")
                         .font(.caption)
@@ -63,6 +68,13 @@ private struct HistoryRow: View {
             }
         }
         .padding(.vertical, 4)
+    }
+
+    private var displayedText: String {
+        if selectedTab == 1, let processed = item.postProcessedText {
+            return processed
+        }
+        return item.text
     }
 
     private func tabButton(_ label: String, tag: Int, disabled: Bool = false) -> some View {
