@@ -175,6 +175,7 @@ class AppState: ObservableObject {
 
         let samples = audioSamples
         let language = selectedMode.language
+        let modeName = selectedMode.name
         audioSamples = []
         log.info("Transcribing \(samples.count) samples, language: \(language ?? "auto")")
 
@@ -195,7 +196,7 @@ class AppState: ObservableObject {
                 log.info("Transcription result: \(text)")
 
                 if !text.isEmpty {
-                    let transcription = Transcription(text: text)
+                    let transcription = Transcription(text: text, modeName: modeName)
                     transcriptionHistory.insert(transcription, at: 0)
                     saveHistory()
                     PasteService.paste(text: text)
