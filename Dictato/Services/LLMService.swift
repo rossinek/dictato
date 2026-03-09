@@ -126,11 +126,17 @@ enum LLMService {
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
+        let wrappedUserMessage = """
+            <transcription>
+            \(userMessage)
+            </transcription>
+            """
+
         let body = ChatRequest(
             model: model,
             messages: [
-                ChatMessage(role: "system", content: systemPrompt),
-                ChatMessage(role: "user", content: userMessage),
+                ChatMessage(role: "system", content: systemPrompt + "\n\nYou will receive a transcription wrapped in <transcription> tags. Apply your instructions to this text. Output only the processed result, no tags or explanations."),
+                ChatMessage(role: "user", content: wrappedUserMessage),
             ]
         )
         request.httpBody = try JSONEncoder().encode(body)
