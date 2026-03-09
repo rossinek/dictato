@@ -59,7 +59,25 @@ class AppState: ObservableObject {
         state.isPostProcessing = isPostProcessing
         state.isError = isError
         state.modes = [TranscriptionMode.default, TranscriptionMode(id: UUID(), name: "Email", language: "en", prompt: "Fix grammar")]
-        state.transcriptionHistory = []
+        state.transcriptionHistory = [
+            Transcription(text: "Hey, remind me to pick up groceries on the way home tonight. Also, can you check if the dry cleaning is ready?", postProcessedText: "Remind me to pick up groceries on the way home tonight. Also, check if the dry cleaning is ready.", modeName: "Default"),
+            {
+                let fileName = "preview-audio.wav"
+                let url = state.recordingsDirectoryURL.appendingPathComponent(fileName)
+                if !FileManager.default.fileExists(atPath: url.path) {
+                    // Create a tiny valid WAV so audioFileURL(for:) finds it
+                    let header = Data([
+                        0x52,0x49,0x46,0x46, 0x24,0x00,0x00,0x00, 0x57,0x41,0x56,0x45,
+                        0x66,0x6D,0x74,0x20, 0x10,0x00,0x00,0x00, 0x01,0x00,0x01,0x00,
+                        0x80,0x3E,0x00,0x00, 0x00,0x7D,0x00,0x00, 0x02,0x00,0x10,0x00,
+                        0x64,0x61,0x74,0x61, 0x00,0x00,0x00,0x00,
+                    ])
+                    try? header.write(to: url)
+                }
+                return Transcription(text: "The quick brown fox jumps over the lazy dog. This is a test of the transcription system.", modeName: "Email", audioFileName: fileName)
+            }(),
+            Transcription(text: "Meeting notes from today: we discussed the Q2 roadmap and agreed to prioritize the mobile app launch.", postProcessedText: nil, modeName: "Default"),
+        ]
         return state
     }
 
@@ -484,6 +502,17 @@ class AppState: ObservableObject {
             transcriptionHistory[i].audioFileName = nil
         }
         saveHistory()
+    }
+
+    func deleteTranscription(id: UUID) {
+        guard let index = transcriptionHistory.firstIndex(where: { $0.id == id }) else { return }
+        if let fileName = transcriptionHistory[index].audioFileName {
+            let url = recordingsDirectoryURL.appendingPathComponent(fileName)
+            try? FileManager.default.removeItem(at: url)
+        }
+        transcriptionHistory.remove(at: index)
+        saveHistory()
+        log.info("Deleted transcription")
     }
 
     func reTranscribe(transcriptionID: UUID, withMode mode: TranscriptionMode) {
