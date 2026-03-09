@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 import os
 import SwiftUI
@@ -18,6 +19,7 @@ class AppState: ObservableObject {
     @Published var modes: [TranscriptionMode] = []
     @Published var selectedModeIndex: Int = 0
     @Published var isPostProcessing = false
+    @Published var isError = false
 
     var selectedMode: TranscriptionMode {
         modes[min(selectedModeIndex, modes.count - 1)]
@@ -25,6 +27,7 @@ class AppState: ObservableObject {
 
     private var whisperKit: WhisperKit?
     private var audioSamples: [Float] = []
+    private var failedSamples: [Float] = []
     private var transcriptionTask: Task<Void, Never>?
 
     private init() {
@@ -185,6 +188,42 @@ class AppState: ObservableObject {
         log.info("Recording discarded")
     }
 
+    func dismissError() {
+        isError = false
+        failedSamples = []
+        log.info("Error dismissed")
+    }
+
+    func saveFailedRecording() {
+        guard !failedSamples.isEmpty else { return }
+        let samples = failedSamples
+
+        let savePanel = NSSavePanel()
+        savePanel.allowedContentTypes = [.wav]
+        savePanel.nameFieldStringValue = "recording-\(Int(Date().timeIntervalSince1970)).wav"
+
+        guard savePanel.runModal() == .OK, let url = savePanel.url else { return }
+
+        let sampleRate: Double = 16000
+        let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(samples.count)) else {
+            log.error("Failed to create audio buffer")
+            return
+        }
+        buffer.frameLength = AVAudioFrameCount(samples.count)
+        memcpy(buffer.floatChannelData![0], samples, samples.count * MemoryLayout<Float>.size)
+
+        do {
+            let file = try AVAudioFile(forWriting: url, settings: format.settings)
+            try file.write(from: buffer)
+            log.info("Recording saved to \(url.path)")
+        } catch {
+            log.error("Failed to save recording: \(error)")
+        }
+
+        dismissError()
+    }
+
     private func stopAndTranscribe() {
         guard let whisperKit else { return }
 
@@ -242,9 +281,21 @@ class AppState: ObservableObject {
                     transcriptionHistory.insert(transcription, at: 0)
                     saveHistory()
                     PasteService.paste(text: processedText ?? text)
+                } else {
+                    failedSamples = samples
+                    isTranscribing = false
+                    isError = true
+                    NSSound.beep()
+                    log.warning("Transcription returned empty text")
                 }
             } catch {
                 log.error("Transcription failed: \(error)")
+                failedSamples = samples
+                isTranscribing = false
+                isPostProcessing = false
+                isError = true
+                NSSound.beep()
+                return
             }
 
             isTranscribing = false

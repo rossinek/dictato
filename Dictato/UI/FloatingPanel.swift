@@ -65,7 +65,9 @@ class FloatingPanel: NSPanel {
             case 53: // Escape
                 Task { @MainActor in
                     let state = AppState.shared
-                    if state.isTranscribing || state.isPostProcessing {
+                    if state.isError {
+                        state.dismissError()
+                    } else if state.isTranscribing || state.isPostProcessing {
                         state.cancelTranscription()
                     } else if state.isRecording {
                         state.togglePause()
@@ -74,8 +76,11 @@ class FloatingPanel: NSPanel {
                 return nil // swallow the event
             case 36: // Enter
                 Task { @MainActor in
-                    if AppState.shared.isPaused {
-                        AppState.shared.discardRecording()
+                    let state = AppState.shared
+                    if state.isError {
+                        state.saveFailedRecording()
+                    } else if state.isPaused {
+                        state.discardRecording()
                     }
                 }
                 return nil
