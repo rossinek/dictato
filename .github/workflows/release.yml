@@ -77,5 +77,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release upload "${{ github.event.release.tag_name }}" \
-            ./build/export/Dictato.zip
+          TAG="${{ github.event.release.tag_name }}"
+          mv ./build/export/Dictato.zip "./build/export/Dictato-${TAG}.zip"
+          gh release upload "$TAG" \
+            "./build/export/Dictato-${TAG}.zip"
