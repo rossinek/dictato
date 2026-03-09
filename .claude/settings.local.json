@@ -5,7 +5,8 @@
       "Bash(xcodebuild:*)",
       "WebSearch",
       "Bash(gh search:*)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Bash(gh release:*)"
     ]
   }
 }
