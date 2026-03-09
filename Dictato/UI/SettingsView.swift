@@ -134,6 +134,8 @@ private struct ModeRow: View {
     @State private var availableModels: [String] = []
     @State private var isLoadingModels = false
     @State private var modelLoadError: String?
+    @State private var modelSearch = ""
+    @FocusState private var isSearchFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -165,31 +167,67 @@ private struct ModeRow: View {
             }
 
             if mode.provider != .none {
-                HStack {
-                    Picker("Model", selection: modelBinding) {
-                        Text("Select a model").tag(nil as String?)
-                        ForEach(availableModels, id: \.self) { model in
-                            Text(model).tag(model as String?)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        TextField("Search models...", text: $modelSearch)
+                            .textFieldStyle(.roundedBorder)
+                            .focused($isSearchFocused)
+                            .onChange(of: isSearchFocused) {
+                                if isSearchFocused && availableModels.isEmpty && !isLoadingModels {
+                                    fetchModels()
+                                }
+                            }
+
+                        if isLoadingModels {
+                            ProgressView()
+                                .scaleEffect(0.5)
                         }
+
+                        Button {
+                            fetchModels()
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                        }
+                        .buttonStyle(.borderless)
                     }
 
-                    if isLoadingModels {
-                        ProgressView()
-                            .scaleEffect(0.5)
+                    if let error = modelLoadError {
+                        Text(error)
+                            .font(.caption)
+                            .foregroundStyle(.red)
                     }
 
-                    Button {
-                        fetchModels()
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                    .buttonStyle(.borderless)
-                }
+                    let filtered = modelSearch.isEmpty ? availableModels :
+                        availableModels.filter { $0.localizedCaseInsensitiveContains(modelSearch) }
 
-                if let error = modelLoadError {
-                    Text(error)
-                        .font(.caption)
-                        .foregroundStyle(.red)
+                    if !filtered.isEmpty && isSearchFocused {
+                        ScrollView {
+                            LazyVStack(alignment: .leading, spacing: 0) {
+                                ForEach(filtered, id: \.self) { model in
+                                    Text(model)
+                                        .font(.system(.body, design: .monospaced))
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background(mode.model == model ? AnyShapeStyle(.tint.opacity(0.2)) : AnyShapeStyle(.clear), in: RoundedRectangle(cornerRadius: 4))
+                                        .contentShape(Rectangle())
+                                        .onTapGesture {
+                                            mode.model = model
+                                            isSearchFocused = false
+                                        }
+                                }
+                            }
+                            .padding(4)
+                        }
+                        .frame(maxHeight: 120)
+                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+                    }
+
+                    if let selected = mode.model {
+                        Text("Selected: \(selected)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 TextEditor(text: $mode.prompt)

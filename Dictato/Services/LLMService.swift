@@ -100,7 +100,17 @@ enum LLMService {
         }
 
         let modelsResponse = try JSONDecoder().decode(ModelsResponse.self, from: data)
-        let ids = modelsResponse.data
+        var entries = modelsResponse.data
+
+        if provider == .openai {
+            let excluded = ["image", "audio", "realtime", "codex", "tts", "whisper", "transcribe", "search", "research", "embedding", "dall-e", "davinci", "babbage", "sora"]
+            entries = entries.filter { entry in
+                let id = entry.id.lowercased()
+                return !excluded.contains { id.contains($0) }
+            }
+        }
+
+        let ids = entries
             .sorted { ($0.created ?? 0) > ($1.created ?? 0) }
             .map(\.id)
         log.info("Fetched \(ids.count) models from \(provider.displayName)")
