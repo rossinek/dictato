@@ -1,10 +1,29 @@
 # Dictato
 
-A minimal SuperWhisper clone for macOS. Menu bar app that records speech via a global shortcut and transcribes it locally using WhisperKit (Whisper large-v3-turbo).
+A minimal SuperWhisper clone. Records speech and transcribes it locally.
 
-## Build & Run
+## Repository Structure
+
+```
+.
+├── macos/          # macOS menu bar app (WhisperKit)
+│   ├── Dictato/    # Source code
+│   ├── project.yml # XcodeGen spec
+│   └── ExportOptions.plist
+├── ios/            # iOS app (FluidAudio/Parakeet TDT v3) — planned
+├── scripts/        # Build & notarize scripts
+├── assets-raw/     # Source assets (icons, etc.)
+├── IOS.md          # iOS app specification
+└── CLAUDE.md       # This file
+```
+
+## macOS App
+
+### Build & Run
 
 ```bash
+cd macos
+
 # Regenerate Xcode project after adding/removing files
 xcodegen generate
 
@@ -17,22 +36,22 @@ xcodebuild -project Dictato.xcodeproj -scheme Dictato -destination 'platform=mac
 
 **Important:** Do not rebuild between accessibility permission grants — each rebuild changes the ad-hoc code signature, invalidating macOS accessibility trust. Relaunch without rebuilding when testing.
 
-## Architecture
+### Architecture
 
-### Entry Point
+#### Entry Point
 - `DictatoApp.swift` — SwiftUI `@main` app. `MenuBarExtra` for the tray icon/menu. `AppDelegate` handles shortcut registration and floating panel lifecycle.
 - `AppState.swift` — `@MainActor` singleton (`AppState.shared`). Owns WhisperKit instance, recording state, transcription history. All state flows through here.
 
-### Recording & Transcription Flow
+#### Recording & Transcription Flow
 1. Global shortcut (default: **Option+Space**) toggles recording via `AppState.toggleRecording()`
 2. Recording uses WhisperKit's built-in `audioProcessor.startRecordingLive()` — no custom AVAudioEngine
 3. On stop, accumulated `[Float]` samples are passed to `whisperKit.transcribe(audioArray:)`
 4. Result is pasted at cursor via `PasteService` (CGEvent Cmd+V simulation)
 5. Transcription is saved to history
 
-### Key Files
+#### Key Files
 ```
-Dictato/
+macos/Dictato/
 ├── App/
 │   ├── DictatoApp.swift          # App entry, MenuBarExtra, AppDelegate
 │   └── AppState.swift            # Central state, WhisperKit lifecycle, recording
@@ -53,26 +72,30 @@ Dictato/
     └── Dictato.entitlements       # Empty (no sandbox for dev)
 ```
 
-### Dependencies (SPM via project.yml)
+#### Dependencies (SPM via project.yml)
 - **WhisperKit** (argmaxinc) — model download, audio processing, transcription
 - **KeyboardShortcuts** (sindresorhus) — global hotkey with configurable UI
 
-### Data Storage
+#### Data Storage
 - **Model files:** `~/Library/Application Support/Dictato/Models/`
 - **Transcription history:** `~/Library/Application Support/Dictato/history.json`
 
-## Known Issues / Dev Notes
+### Known Issues / Dev Notes
 
 - **Slow first launch:** CoreML compiles the model for your hardware on first load (~2-3 min). Cached after that, but cache is invalidated by code signature changes (every Xcode rebuild).
 - **Accessibility permissions:** Tied to code signature. After rebuilding, you may need to re-add the app in System Settings > Privacy & Security > Accessibility.
 - **Sandbox disabled:** Entitlements file is empty for development. Needs proper sandbox + hardened runtime for distribution.
 - **State observation:** The floating panel is managed via a polling Task (100ms) watching `AppState` properties. This works but could be replaced with Combine publishers if needed.
 
-## Adding New Features
+### Adding New Features
 
-- **New UI:** Add SwiftUI views in `Dictato/UI/`, run `xcodegen generate` to update the project.
+- **New UI:** Add SwiftUI views in `macos/Dictato/UI/`, run `xcodegen generate` from `macos/` to update the project.
 - **Settings:** Add controls to `SettingsView.swift`, store values with `@AppStorage` or `UserDefaults`.
 - **Model selection:** Change the variant string in `AppState.initializeWhisperKit()`. Available variants are in the `argmaxinc/whisperkit-coreml` HuggingFace repo.
+
+## iOS App
+
+See `IOS.md` for the full specification. Uses FluidAudio (Parakeet TDT v3 CoreML) instead of WhisperKit.
 
 ## Logging
 

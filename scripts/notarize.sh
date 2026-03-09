@@ -17,7 +17,8 @@ if [ -z "${APP_PASSWORD:-}" ]; then
 fi
 
 TEAM_ID="H7B584W2D6"
-PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+PROJECT_DIR="$REPO_DIR/macos"
 BUILD_DIR="$PROJECT_DIR/build"
 ARCHIVE_PATH="$BUILD_DIR/Dictato.xcarchive"
 EXPORT_PATH="$BUILD_DIR/export"

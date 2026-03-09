@@ -39,10 +39,11 @@ jobs:
           security list-keychains -d user -s "$KEYCHAIN_PATH"
 
       - name: Generate project
-        run: xcodegen generate
+        run: cd macos && xcodegen generate
 
       - name: Archive
         run: |
+          cd macos
           xcodebuild -project Dictato.xcodeproj -scheme Dictato \
             -configuration Release \
             -destination 'platform=macOS' \
@@ -50,6 +51,7 @@ jobs:
 
       - name: Export
         run: |
+          cd macos
           xcodebuild -exportArchive \
             -archivePath ./build/Dictato.xcarchive \
             -exportPath ./build/export \
@@ -60,6 +62,7 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APP_PASSWORD: ${{ secrets.APP_PASSWORD }}
         run: |
+          cd macos
           ditto -c -k --keepParent ./build/export/Dictato.app ./build/export/Dictato.zip
 
           xcrun notarytool submit ./build/export/Dictato.zip \
@@ -78,6 +81,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="${{ github.event.release.tag_name }}"
-          mv ./build/export/Dictato.zip "./build/export/Dictato-${TAG}.zip"
+          mv ./macos/build/export/Dictato.zip "./macos/build/export/Dictato-${TAG}.zip"
           gh release upload "$TAG" \
-            "./build/export/Dictato-${TAG}.zip"
+            "./macos/build/export/Dictato-${TAG}.zip"
