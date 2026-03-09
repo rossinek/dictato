@@ -1,11 +1,7 @@
 import SwiftUI
-import UniformTypeIdentifiers
 
 struct HomeView: View {
     @ObservedObject var appState: AppState
-    @State private var showFileImporter = false
-    @State private var showModePickerForFile: URL?
-    @State private var navigateToHistory = false
 
     var body: some View {
         VStack(spacing: 12) {
@@ -14,66 +10,17 @@ struct HomeView: View {
             if !appState.isModelLoaded {
                 modelLoadingView
             } else {
-//                if appState.isError {
-//                    statusLabel(text: "Transcription failed", color: .red)
-//                } else if appState.isPostProcessing {
-//                    statusLabel(text: "Post-processing...", color: .blue)
-//                } else if appState.isTranscribing {
-//                    statusLabel(text: "Transcribing...", color: .orange)
-//                } else if appState.isPaused {
-//                    statusLabel(text: "Paused", color: .yellow)
-//                } else if appState.isRecording {
-//                    statusLabel(text: "Recording...", color: .red)
-//                } else {
-//                    modePills
-                }
-
                 buttonRow
                 modePills
+            }
 
             Spacer()
-
-            if appState.isModelLoaded && !appState.isRecording && !appState.isPaused && !appState.isTranscribing && !appState.isPostProcessing && !appState.isError {
-                bottomToolbar
-            }
         }
         .padding(20)
         .navigationTitle("Dictato")
-        .navigationDestination(isPresented: $navigateToHistory) {
-            HistoryView(appState: appState)
-        }
         .sheet(item: $appState.lastTranscriptionResult) { transcription in
             ResultSheet(transcription: transcription) {
                 appState.lastTranscriptionResult = nil
-            }
-        }
-        .fileImporter(
-            isPresented: $showFileImporter,
-            allowedContentTypes: [.audio, .wav, .mp3, .aiff, UTType("public.aifc-audio") ?? .audio, UTType("com.apple.m4a-audio") ?? .audio],
-            allowsMultipleSelection: false
-        ) { result in
-            if case .success(let urls) = result, let url = urls.first {
-                showModePickerForFile = url
-            }
-        }
-        .confirmationDialog("Transcribe with mode", isPresented: Binding(
-            get: { showModePickerForFile != nil },
-            set: { if !$0 { showModePickerForFile = nil } }
-        )) {
-            ForEach(appState.modes) { mode in
-                Button(mode.name) {
-                    if let url = showModePickerForFile {
-                        let secureAccess = url.startAccessingSecurityScopedResource()
-                        appState.transcribeFile(url: url, mode: mode) {
-                            if secureAccess { url.stopAccessingSecurityScopedResource() }
-                            navigateToHistory = true
-                        }
-                        showModePickerForFile = nil
-                    }
-                }
-            }
-            Button("Cancel", role: .cancel) {
-                showModePickerForFile = nil
             }
         }
     }
@@ -90,36 +37,39 @@ struct HomeView: View {
         }
     }
 
-    private func statusLabel(text: String, color: Color) -> some View {
-        Text(text)
-            .font(.system(size: 16, weight: .semibold))
-            .foregroundStyle(color)
-    }
-
     private var pillsDisabled: Bool {
         appState.isError || appState.isPostProcessing || appState.isTranscribing
     }
 
+    @Namespace private var pillNamespace
+    @Environment(\.colorScheme) private var colorScheme
+
     private var modePills: some View {
-      GlassEffectContainer(spacing: 16){
-            HStack(spacing: 2) {
-                ForEach(Array(appState.modes.enumerated()), id: \.element.id) { index, mode in
-                    Text(mode.name)
-                        .font(.caption)
-                        .bold(appState.selectedModeIndex == index)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .glassEffect(.clear)
-                        .foregroundStyle(appState.selectedModeIndex == index ? .white : .primary)
-                        .onTapGesture {
-                            if !pillsDisabled {
+        HStack(spacing: 2) {
+            ForEach(Array(appState.modes.enumerated()), id: \.element.id) { index, mode in
+                Text(mode.name)
+                    .font(.caption)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background {
+                        if appState.selectedModeIndex == index {
+                            Capsule()
+                                .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.1))
+                                .matchedGeometryEffect(id: "selectedPill", in: pillNamespace)
+                        }
+                    }
+                    .foregroundStyle(appState.selectedModeIndex == index ? .white : .secondary)
+                    .onTapGesture {
+                        if !pillsDisabled {
+                            withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
                                 appState.selectMode(index: index)
                             }
                         }
-                }
+                    }
             }
-            .padding(.horizontal, 4)
         }
+        .padding(4)
+        .glassEffect(.regular)
         .opacity(pillsDisabled ? 0.4 : 1.0)
         .animation(.default, value: pillsDisabled)
     }
@@ -252,29 +202,6 @@ struct HomeView: View {
         .glassEffect(.clear.interactive(), in: .circle)
     }
 
-    private var bottomToolbar: some View {
-        HStack(spacing: 24) {
-            NavigationLink {
-                HistoryView(appState: appState)
-            } label: {
-                Label("History", systemImage: "clock")
-            }
-
-            NavigationLink {
-                SettingsView()
-            } label: {
-                Label("Settings", systemImage: "gear")
-            }
-
-            Button {
-                showFileImporter = true
-            } label: {
-                Label("Import File", systemImage: "doc.badge.plus")
-            }
-            .disabled(appState.isFileTranscribing)
-        }
-        .font(.body)
-    }
 }
 
 // MARK: - Result Sheet
