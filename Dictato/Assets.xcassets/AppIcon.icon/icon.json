@@ -1,0 +1,68 @@
+{
+  "fill" : {
+    "linear-gradient" : [
+      "display-p3:0.10484,0.10484,0.10484,1.00000",
+      "display-p3:0.11124,0.08630,0.23873,1.00000"
+    ],
+    "orientation" : {
+      "start" : {
+        "x" : 0.5,
+        "y" : 0
+      },
+      "stop" : {
+        "x" : 0.5,
+        "y" : 0.7
+      }
+    }
+  },
+  "groups" : [
+    {
+      "layers" : [
+        {
+          "blend-mode" : "normal",
+          "fill" : {
+            "linear-gradient" : [
+              "display-p3:0.38475,0.72644,0.79719,1.00000",
+              "display-p3:0.13640,0.25728,0.45441,1.00000"
+            ],
+            "orientation" : {
+              "start" : {
+                "x" : 0.5254302536231884,
+                "y" : 0.3845108695652174
+              },
+              "stop" : {
+                "x" : 0.5470442708333333,
+                "y" : 1
+              }
+            }
+          },
+          "glass" : true,
+          "image-name" : "waterfall.svg",
+          "name" : "waterfall",
+          "opacity" : 0.82,
+          "position" : {
+            "scale" : 23,
+            "translation-in-points" : [
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.5
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "circles" : [
+      "watchOS"
+    ],
+    "squares" : "shared"
+  }
+}

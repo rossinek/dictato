@@ -8,7 +8,7 @@ struct DictatoApp: App {
     @Environment(\.openWindow) private var openWindow
 
     var body: some Scene {
-        MenuBarExtra("Dictato", systemImage: menuBarIcon) {
+        MenuBarExtra("Dictato", image: menuBarIcon) {
             if !appState.isModelLoaded {
                 Text(appState.modelLoadingProgress)
                 Divider()
@@ -53,12 +53,9 @@ struct DictatoApp: App {
 
     private var menuBarIcon: String {
         if !appState.isModelLoaded {
-            return "arrow.down.circle.dotted"
+            return "MenuBarIconOutline"
         }
-        if appState.isRecording {
-            return "mic.fill"
-        }
-        return "mic"
+        return "MenuBarIcon"
     }
 }
 

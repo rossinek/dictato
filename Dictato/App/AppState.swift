@@ -58,6 +58,7 @@ class AppState: ObservableObject {
             log.info("Downloading model...")
             let downloadBase = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
                 .appendingPathComponent("Dictato/Models", isDirectory: true)
+            setenv("HF_HOME", downloadBase.path, 1)
             try FileManager.default.createDirectory(at: downloadBase, withIntermediateDirectories: true)
             log.info("Model download base: \(downloadBase.path())")
 
@@ -76,15 +77,19 @@ class AppState: ObservableObject {
             modelLoadingProgress = "Compiling model (first launch is slow)..."
             log.info("Loading model into memory...")
             let kit = try await WhisperKit(
-                modelFolder: modelFolder.path,
-                computeOptions: ModelComputeOptions(
-                    audioEncoderCompute: .cpuAndNeuralEngine,
-                    textDecoderCompute: .cpuAndNeuralEngine
-                ),
-                verbose: true,
-                logLevel: .info,
-                prewarm: true,
-                download: false
+                WhisperKitConfig(
+                    downloadBase: downloadBase,
+                    modelFolder: modelFolder.path,
+                    tokenizerFolder: downloadBase,
+                    computeOptions: ModelComputeOptions(
+                        audioEncoderCompute: .cpuAndNeuralEngine,
+                        textDecoderCompute: .cpuAndNeuralEngine
+                    ),
+                    verbose: true,
+                    logLevel: .info,
+                    prewarm: true,
+                    download: false
+                )
             )
             whisperKit = kit
             isModelLoaded = true
