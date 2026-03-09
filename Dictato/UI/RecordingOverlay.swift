@@ -24,8 +24,6 @@ struct RecordingOverlay: View {
 
                     Text(statusText)
                         .font(.system(size: 16, weight: .semibold))
-
-                    Spacer()
                 }
 
                 if !isTranscribing {
@@ -42,9 +40,9 @@ struct RecordingOverlay: View {
                                     .font(.system(size: 11))
                             }
                             .foregroundStyle(.secondary)
+                            .contentShape(Rectangle())
+                            .onTapGesture { action.handler() }
                         }
-
-                        Spacer()
                     }
                 }
             }
@@ -75,6 +73,8 @@ struct RecordingOverlay: View {
                             in: .capsule
                         )
                         .foregroundStyle(isSelected ? .primary : .secondary)
+                        .contentShape(Capsule())
+                        .onTapGesture { AppState.shared.selectMode(index: index) }
                     }
                 }
             }
@@ -108,19 +108,20 @@ struct RecordingOverlay: View {
     private struct Action {
         let key: String
         let label: String
+        let handler: () -> Void
     }
 
     private var actions: [Action] {
         if isPaused {
             return [
-                Action(key: shortcutLabel, label: "Transcribe"),
-                Action(key: "esc", label: "Resume"),
-                Action(key: "⏎", label: "Discard"),
+                Action(key: shortcutLabel, label: "Transcribe") { AppState.shared.toggleRecording() },
+                Action(key: "esc", label: "Resume") { AppState.shared.togglePause() },
+                Action(key: "⏎", label: "Discard") { AppState.shared.discardRecording() },
             ]
         } else {
             return [
-                Action(key: shortcutLabel, label: "Finish"),
-                Action(key: "esc", label: "Pause"),
+                Action(key: shortcutLabel, label: "Finish") { AppState.shared.toggleRecording() },
+                Action(key: "esc", label: "Pause") { AppState.shared.togglePause() },
             ]
         }
     }

@@ -96,8 +96,9 @@ class AppState: ObservableObject {
     }
 
     func toggleRecording() {
-        if isRecording {
+        if isRecording || isPaused {
             log.info("Stopping recording")
+            isPaused = false
             stopAndTranscribe()
         } else {
             log.info("Starting recording")
