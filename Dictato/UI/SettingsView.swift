@@ -55,28 +55,31 @@ struct SettingsView: View {
                 SectionCard("Modes") {
                     VStack(spacing: 16) {
                         ForEach(appState.modes) { mode in
-                            if let index = appState.modes.firstIndex(where: { $0.id == mode.id }) {
-                                ModeRow(
-                                    mode: Binding(
-                                        get: { appState.modes[index] },
-                                        set: {
-                                            appState.modes[index] = $0
+                            let modeID = mode.id
+                            ModeRow(
+                                mode: Binding(
+                                    get: { appState.modes.first(where: { $0.id == modeID }) ?? mode },
+                                    set: {
+                                        if let idx = appState.modes.firstIndex(where: { $0.id == modeID }) {
+                                            appState.modes[idx] = $0
                                             appState.saveModes()
                                         }
-                                    ),
-                                    canDelete: appState.modes.count > 1,
-                                    onDelete: {
-                                        appState.modes.remove(at: index)
+                                    }
+                                ),
+                                canDelete: appState.modes.count > 1,
+                                onDelete: {
+                                    if let idx = appState.modes.firstIndex(where: { $0.id == modeID }) {
+                                        appState.modes.remove(at: idx)
                                         if appState.selectedModeIndex >= appState.modes.count {
                                             appState.selectedModeIndex = 0
                                         }
                                         appState.saveModes()
                                     }
-                                )
-
-                                if index < appState.modes.count - 1 {
-                                    Divider()
                                 }
+                            )
+
+                            if mode.id != appState.modes.last?.id {
+                                Divider()
                             }
                         }
 
