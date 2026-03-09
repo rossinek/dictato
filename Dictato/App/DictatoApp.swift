@@ -23,13 +23,33 @@ struct DictatoApp: App {
             Divider()
 
             Button("History") {
-                openWindow(id: "history")
+                let mouseScreen = NSScreen.screens.first(where: { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) }) ?? NSScreen.main
                 NSApp.activate(ignoringOtherApps: true)
+                openWindow(id: "history")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    if let window = NSApp.windows.first(where: { $0.title == "History" }) {
+                        if let screen = mouseScreen {
+                            let x = screen.visibleFrame.midX - window.frame.width / 2
+                            let y = screen.visibleFrame.midY - window.frame.height / 2
+                            window.setFrameOrigin(NSPoint(x: x, y: y))
+                        }
+                        window.orderFrontRegardless()
+                    }
+                }
             }
 
             SettingsLink {
                 Text("Settings...")
             }
+            .onAppear {}  // Force SwiftUI to register the settings scene
+            .simultaneousGesture(TapGesture().onEnded {
+                NSApp.activate(ignoringOtherApps: true)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    for window in NSApp.windows where window.title == "Settings" || window.className.contains("Settings") {
+                        window.orderFrontRegardless()
+                    }
+                }
+            })
 
             Divider()
 

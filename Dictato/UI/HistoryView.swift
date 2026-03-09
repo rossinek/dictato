@@ -25,7 +25,7 @@ struct HistoryView: View {
             }
             .padding(24)
         }
-        .frame(width: 620, height: 450)
+        .frame(minWidth: 620, maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
@@ -42,6 +42,7 @@ private struct HistoryRow: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(displayedText)
                 .lineLimit(3)
+                .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             Text(relativeTime(from: item.date))
