@@ -281,11 +281,12 @@ class AppState: ObservableObject {
                     transcriptionHistory.insert(transcription, at: 0)
                     saveHistory()
                     PasteService.paste(text: processedText ?? text)
+                    NSSound(named: "Funk")?.play()
                 } else {
                     failedSamples = samples
                     isTranscribing = false
                     isError = true
-                    NSSound.beep()
+                    NSSound(named: "Sosumi")?.play()
                     log.warning("Transcription returned empty text")
                 }
             } catch {
@@ -294,7 +295,7 @@ class AppState: ObservableObject {
                 isTranscribing = false
                 isPostProcessing = false
                 isError = true
-                NSSound.beep()
+                NSSound(named: "Sosumi")?.play()
                 return
             }
 
