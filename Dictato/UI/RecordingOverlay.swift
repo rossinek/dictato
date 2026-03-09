@@ -136,7 +136,7 @@ struct RecordingOverlay: View {
             ]
         } else if isPaused {
             return [
-                Action(key: shortcutLabel, label: "Resume") { AppState.shared.togglePause() },
+                Action(key: "esc", label: "Resume") { AppState.shared.togglePause() },
                 Action(key: "⏎", label: "Discard") { AppState.shared.discardRecording() },
             ]
         } else {

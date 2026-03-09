@@ -99,6 +99,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         KeyboardShortcuts.onKeyDown(for: .toggleRecording) {
             Task { @MainActor in
+                guard !appState.isPaused else { return }
                 appState.toggleRecording()
             }
         }

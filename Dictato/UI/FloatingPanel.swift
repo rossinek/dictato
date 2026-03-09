@@ -69,6 +69,8 @@ class FloatingPanel: NSPanel {
                         state.dismissError()
                     } else if state.isTranscribing || state.isPostProcessing {
                         state.cancelTranscription()
+                    } else if state.isPaused {
+                        state.togglePause()
                     } else if state.isRecording {
                         state.togglePause()
                     }
