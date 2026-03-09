@@ -27,6 +27,10 @@ targets:
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: 1
         SWIFT_VERSION: "5.9"
+        CODE_SIGN_IDENTITY: "Developer ID Application"
+        DEVELOPMENT_TEAM: H7B584W2D6
+        CODE_SIGN_STYLE: Manual
+        ENABLE_HARDENED_RUNTIME: YES
     dependencies:
       - package: WhisperKit
       - package: KeyboardShortcuts

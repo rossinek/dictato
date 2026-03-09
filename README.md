@@ -31,6 +31,26 @@ On first launch, grant the following in **System Settings > Privacy & Security**
 - **Accessibility** — for global shortcut and paste simulation
 - **Input Monitoring** — for keyboard event tap
 
+## Scripts
+
+### Sign, notarize & distribute
+
+Builds, signs with Developer ID, notarizes with Apple, and produces a distributable zip:
+
+```bash
+APPLE_ID="your@email.com" APP_PASSWORD="your-app-specific-password" ./scripts/notarize.sh
+```
+
+To also install the notarized build to `/Applications`:
+
+```bash
+APPLE_ID="your@email.com" APP_PASSWORD="your-app-specific-password" ./scripts/notarize.sh --install
+```
+
+The app-specific password can be generated at [account.apple.com](https://account.apple.com) under Sign-In and Security → App-Specific Passwords.
+
+Output: `build/export/Dictato.zip`
+
 ## Notes
 
 - First launch is slow (~2-3 min) while CoreML compiles the Whisper model for your hardware. Cached after that.
