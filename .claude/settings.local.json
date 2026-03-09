@@ -6,7 +6,8 @@
       "WebSearch",
       "Bash(gh search:*)",
       "WebFetch(domain:github.com)",
-      "Bash(gh release:*)"
+      "Bash(gh release:*)",
+      "Bash(gh run:*)"
     ]
   }
 }
