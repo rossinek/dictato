@@ -14,7 +14,7 @@ struct RecordingOverlay: View {
     var body: some View {
         VStack(spacing: 8) {
             // Main pill
-            VStack(spacing: 4) {
+            VStack(spacing: 6) {
                 HStack(spacing: 8) {
                     Circle()
                         .fill(dotColor)
@@ -26,28 +26,27 @@ struct RecordingOverlay: View {
                         .font(.system(size: 16, weight: .semibold))
                 }
 
-                if !isTranscribing {
-                    HStack(spacing: 16) {
-                        ForEach(actions, id: \.label) { action in
-                            HStack(spacing: 4) {
-                                Text(action.key)
-                                    .font(.system(size: 10, weight: .medium, design: .rounded))
-                                    .padding(.horizontal, 5)
-                                    .padding(.vertical, 2)
-                                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 3))
+                HStack(spacing: 16) {
+                    ForEach(actions, id: \.label) { action in
+                        HStack(spacing: 4) {
+                            Text(action.key)
+                                .font(.system(size: 10, weight: .medium, design: .rounded))
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 2)
+                                .background(.quaternary, in: RoundedRectangle(cornerRadius: 3))
 
-                                Text(action.label)
-                                    .font(.system(size: 11))
-                            }
-                            .foregroundStyle(.secondary)
-                            .contentShape(Rectangle())
-                            .onTapGesture { action.handler() }
+                            Text(action.label)
+                                .font(.system(size: 11))
                         }
+                        .foregroundStyle(.secondary)
+                        .contentShape(Rectangle())
+                        .onTapGesture { action.handler() }
                     }
                 }
             }
             .padding(.horizontal, 24)
-            .padding(.vertical, 16)
+            .padding(.top, 20)
+            .padding(.bottom, 14)
             .frame(width: 360, height: 90)
             .glassEffect(.clear.interactive(), in: .capsule)
 
@@ -112,7 +111,11 @@ struct RecordingOverlay: View {
     }
 
     private var actions: [Action] {
-        if isPaused {
+        if isTranscribing || isPostProcessing {
+            return [
+                Action(key: "esc", label: "Cancel") { AppState.shared.cancelTranscription() },
+            ]
+        } else if isPaused {
             return [
                 Action(key: shortcutLabel, label: "Transcribe") { AppState.shared.toggleRecording() },
                 Action(key: "esc", label: "Resume") { AppState.shared.togglePause() },

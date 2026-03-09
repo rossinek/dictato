@@ -58,7 +58,12 @@ class FloatingPanel: NSPanel {
             switch keyCode {
             case 53: // Escape
                 Task { @MainActor in
-                    AppState.shared.togglePause()
+                    let state = AppState.shared
+                    if state.isTranscribing || state.isPostProcessing {
+                        state.cancelTranscription()
+                    } else {
+                        state.togglePause()
+                    }
                 }
                 return nil // swallow the event
             case 36: // Enter

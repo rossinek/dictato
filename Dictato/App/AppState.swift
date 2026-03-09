@@ -25,6 +25,7 @@ class AppState: ObservableObject {
 
     private var whisperKit: WhisperKit?
     private var audioSamples: [Float] = []
+    private var transcriptionTask: Task<Void, Never>?
 
     private init() {
         log.info("AppState initialized")
@@ -159,6 +160,15 @@ class AppState: ObservableObject {
         }
     }
 
+    func cancelTranscription() {
+        guard isTranscribing || isPostProcessing else { return }
+        transcriptionTask?.cancel()
+        transcriptionTask = nil
+        isTranscribing = false
+        isPostProcessing = false
+        log.info("Transcription cancelled")
+    }
+
     func discardRecording() {
         guard let whisperKit, isPaused else { return }
         whisperKit.audioProcessor.stopRecording()
@@ -180,7 +190,7 @@ class AppState: ObservableObject {
         audioSamples = []
         log.info("Transcribing \(samples.count) samples, language: \(mode.language ?? "auto")")
 
-        Task {
+        transcriptionTask = Task {
             do {
                 let results = try await whisperKit.transcribe(
                     audioArray: samples,
