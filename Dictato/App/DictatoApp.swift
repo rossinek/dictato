@@ -5,6 +5,7 @@ import KeyboardShortcuts
 struct DictatoApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @ObservedObject private var appState = AppState.shared
+    @Environment(\.openWindow) private var openWindow
 
     var body: some Scene {
         MenuBarExtra("Dictato", systemImage: menuBarIcon) {
@@ -22,7 +23,8 @@ struct DictatoApp: App {
             Divider()
 
             Button("History") {
-                appDelegate.showHistoryWindow()
+                openWindow(id: "history")
+                NSApp.activate(ignoringOtherApps: true)
             }
 
             SettingsLink {
@@ -37,8 +39,15 @@ struct DictatoApp: App {
             .keyboardShortcut("q")
         }
 
+        Window("History", id: "history") {
+            HistoryView(appState: appState)
+                .toolbar(removing: .title)
+        }
+        .defaultSize(width: 620, height: 450)
+
         Settings {
             SettingsView()
+                .toolbar(removing: .title)
         }
     }
 
@@ -55,7 +64,6 @@ struct DictatoApp: App {
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     private var panel: FloatingPanel?
-    private var historyWindow: NSWindow?
     private var stateObservation: Task<Void, Never>?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -135,29 +143,4 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         panel = nil
     }
 
-    @MainActor
-    func showHistoryWindow() {
-        let appState = AppState.shared
-
-        if let historyWindow, historyWindow.isVisible {
-            historyWindow.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
-            return
-        }
-
-        let view = HistoryView(appState: appState)
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
-            styleMask: [.titled, .closable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = "Dictato — History"
-        window.contentView = NSHostingView(rootView: view)
-        window.center()
-        window.makeKeyAndOrderFront(nil)
-        historyWindow = window
-
-        NSApp.activate(ignoringOtherApps: true)
-    }
 }

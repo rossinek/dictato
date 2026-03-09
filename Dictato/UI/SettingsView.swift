@@ -28,53 +28,101 @@ struct SettingsView: View {
     ]
 
     var body: some View {
-        Form {
-            Section("API Keys") {
-                SecureField("OpenAI API Key", text: $openAIKey)
-                SecureField("Groq API Key", text: $groqKey)
-            }
+        ScrollView {
+            VStack(spacing: 20) {
+                // Header
+                Text("Settings")
+                    .font(.title2.bold())
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 4)
 
-            Section("Keyboard Shortcut") {
-                KeyboardShortcuts.Recorder("Toggle Recording:", name: .toggleRecording)
-            }
+                // Keyboard Shortcut
+                SectionCard("Keyboard Shortcut") {
+                    KeyboardShortcuts.Recorder("Toggle Recording:", name: .toggleRecording)
+                }
 
-            Section("Modes") {
-                ForEach(appState.modes) { mode in
-                    if let index = appState.modes.firstIndex(where: { $0.id == mode.id }) {
-                        ModeRow(
-                            mode: Binding(
-                                get: { appState.modes[index] },
-                                set: {
-                                    appState.modes[index] = $0
-                                    appState.saveModes()
-                                }
-                            ),
-                            canDelete: appState.modes.count > 1,
-                            onDelete: {
-                                appState.modes.remove(at: index)
-                                if appState.selectedModeIndex >= appState.modes.count {
-                                    appState.selectedModeIndex = 0
-                                }
-                                appState.saveModes()
-                            }
-                        )
+                // API Keys
+                SectionCard("API Keys") {
+                    VStack(spacing: 12) {
+                        SecureField("OpenAI API Key", text: $openAIKey)
+                            .textFieldStyle(.roundedBorder)
+                        SecureField("Groq API Key", text: $groqKey)
+                            .textFieldStyle(.roundedBorder)
                     }
                 }
 
-                Button("Add Mode") {
-                    let mode = TranscriptionMode(
-                        id: UUID(),
-                        name: "Mode \(appState.modes.count + 1)",
-                        language: nil,
-                        prompt: ""
-                    )
-                    appState.modes.append(mode)
-                    appState.saveModes()
+                // Modes
+                SectionCard("Modes") {
+                    VStack(spacing: 16) {
+                        ForEach(appState.modes) { mode in
+                            if let index = appState.modes.firstIndex(where: { $0.id == mode.id }) {
+                                ModeRow(
+                                    mode: Binding(
+                                        get: { appState.modes[index] },
+                                        set: {
+                                            appState.modes[index] = $0
+                                            appState.saveModes()
+                                        }
+                                    ),
+                                    canDelete: appState.modes.count > 1,
+                                    onDelete: {
+                                        appState.modes.remove(at: index)
+                                        if appState.selectedModeIndex >= appState.modes.count {
+                                            appState.selectedModeIndex = 0
+                                        }
+                                        appState.saveModes()
+                                    }
+                                )
+
+                                if index < appState.modes.count - 1 {
+                                    Divider()
+                                }
+                            }
+                        }
+
+                        Button {
+                            let mode = TranscriptionMode(
+                                id: UUID(),
+                                name: "Mode \(appState.modes.count + 1)",
+                                language: nil,
+                                prompt: ""
+                            )
+                            appState.modes.append(mode)
+                            appState.saveModes()
+                        } label: {
+                            Label("Add Mode", systemImage: "plus")
+                        }
+                        .buttonStyle(.borderless)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
             }
+            .padding(24)
         }
-        .formStyle(.grouped)
         .frame(width: 550, height: 650)
+    }
+}
+
+private struct SectionCard<Content: View>: View {
+    let title: String
+    let content: Content
+
+    init(_ title: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title)
+                .font(.headline)
+                .foregroundStyle(.secondary)
+
+            content
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
+        }
     }
 }
 
@@ -88,7 +136,7 @@ private struct ModeRow: View {
     @State private var modelLoadError: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack {
                 TextField("Name", text: $mode.name)
                     .textFieldStyle(.roundedBorder)
@@ -148,31 +196,17 @@ private struct ModeRow: View {
                     .font(.body)
                     .frame(minHeight: 60, maxHeight: 120)
                     .scrollContentBackground(.hidden)
-                    .padding(4)
-                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+                    .padding(8)
+                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 10))
                     .overlay(alignment: .topLeading) {
                         if mode.prompt.isEmpty {
                             Text("System prompt for post-processing")
                                 .foregroundStyle(.tertiary)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 8)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 12)
                                 .allowsHitTesting(false)
                         }
                     }
-            }
-        }
-        .padding(.vertical, 4)
-        .onChange(of: mode.provider) {
-            availableModels = []
-            mode.model = nil
-            modelLoadError = nil
-            if mode.provider != .none {
-                fetchModels()
-            }
-        }
-        .onAppear {
-            if mode.provider != .none {
-                fetchModels()
             }
         }
     }

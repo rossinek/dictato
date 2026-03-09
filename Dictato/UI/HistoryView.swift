@@ -4,20 +4,28 @@ struct HistoryView: View {
     @ObservedObject var appState: AppState
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if appState.transcriptionHistory.isEmpty {
-                Text("No transcriptions yet")
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                List(appState.transcriptionHistory) { item in
-                    HistoryRow(item: item)
-                        .listRowSeparator(.visible)
-                        .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
+        ScrollView {
+            VStack(spacing: 20) {
+                Text("History")
+                    .font(.title2.bold())
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 4)
+
+                if appState.transcriptionHistory.isEmpty {
+                    Text("No transcriptions yet")
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, minHeight: 300)
+                } else {
+                    LazyVStack(spacing: 12) {
+                        ForEach(appState.transcriptionHistory) { item in
+                            HistoryRow(item: item)
+                        }
+                    }
                 }
             }
+            .padding(24)
         }
-        .frame(width: 600, height: 400)
+        .frame(width: 620, height: 450)
     }
 }
 
@@ -31,7 +39,7 @@ private struct HistoryRow: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             Text(displayedText)
                 .lineLimit(3)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -67,7 +75,8 @@ private struct HistoryRow: View {
                 .buttonStyle(.borderless)
             }
         }
-        .padding(.vertical, 4)
+        .padding(16)
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
     }
 
     private var displayedText: String {
