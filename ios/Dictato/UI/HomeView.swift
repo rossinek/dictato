@@ -5,6 +5,17 @@ struct HomeView: View {
 
     var body: some View {
         VStack(spacing: 12) {
+            VStack(spacing: 2) {
+                DictatoIcon()
+                    .frame(width: 36, height: 36)
+                    .foregroundStyle(.primary.opacity(0.4))
+                Text("dictato")
+                    .font(.system(size: 22, weight: .semibold, design: .monospaced))
+                    .tracking(4)
+                    .textCase(.lowercase)
+            }
+            .padding(.top, 20)
+
             Spacer()
 
             if !appState.isModelLoaded {
@@ -17,7 +28,7 @@ struct HomeView: View {
             Spacer()
         }
         .padding(20)
-        .navigationTitle("Dictato")
+        .navigationBarHidden(true)
         .sheet(item: $appState.lastTranscriptionResult) { transcription in
             ResultSheet(transcription: transcription) {
                 appState.lastTranscriptionResult = nil
@@ -257,10 +268,14 @@ private struct ResultSheet: View {
                     }
                 } label: {
                     Label(copied ? "Copied!" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(.blue)
                         .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
                 }
-                .buttonStyle(.borderedProminent)
+                .glassEffect(.regular.tint(.blue.opacity(0.15)).interactive())
                 .padding(.horizontal)
+                .padding(.bottom, 8)
             }
             .padding()
             .navigationTitle("Transcription")
@@ -294,6 +309,46 @@ struct ShareSheet: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+}
+
+// MARK: - Dictato Icon
+
+private struct DictatoIcon: Shape {
+    func path(in rect: CGRect) -> Path {
+        let sx = rect.width / 20
+        let sy = rect.height / 20
+        var p = Path()
+        // From SVG: M1 3.5a.5.5 0 0 1 .5-.5H7a2 2 0 0 1 2 2v4.5h6c1.035 0 2 .741 2 1.8V16h1.5a.5.5 0 0 1 0 1H13c-1.035 0-2-.741-2-1.8v-4.7H5a2 2 0 0 1-2-2V4H1.5a.5.5 0 0 1-.5-.5
+        p.move(to: CGPoint(x: 1 * sx, y: 3.5 * sy))
+        // top-left arc (.5x.5 rounded corner) → to (1.5, 3)
+        p.addQuadCurve(to: CGPoint(x: 1.5 * sx, y: 3 * sy), control: CGPoint(x: 1 * sx, y: 3 * sy))
+        p.addLine(to: CGPoint(x: 7 * sx, y: 3 * sy))
+        // arc to (9, 5) — 2x2 rounded corner
+        p.addQuadCurve(to: CGPoint(x: 9 * sx, y: 5 * sy), control: CGPoint(x: 9 * sx, y: 3 * sy))
+        p.addLine(to: CGPoint(x: 9 * sx, y: 9.5 * sy))
+        p.addLine(to: CGPoint(x: 15 * sx, y: 9.5 * sy))
+        // arc to (17, 11.3) — curve
+        p.addQuadCurve(to: CGPoint(x: 17 * sx, y: 11.3 * sy), control: CGPoint(x: 17 * sx, y: 9.5 * sy))
+        p.addLine(to: CGPoint(x: 17 * sx, y: 16 * sy))
+        p.addLine(to: CGPoint(x: 18.5 * sx, y: 16 * sy))
+        // arc .5x.5 → to (19, 16.5)
+        p.addQuadCurve(to: CGPoint(x: 19 * sx, y: 16.5 * sy), control: CGPoint(x: 19 * sx, y: 16 * sy))
+        // arc .5x.5 → to (18.5, 17)
+        p.addQuadCurve(to: CGPoint(x: 18.5 * sx, y: 17 * sy), control: CGPoint(x: 19 * sx, y: 17 * sy))
+        p.addLine(to: CGPoint(x: 13 * sx, y: 17 * sy))
+        // arc to (11, 15.2) — curve
+        p.addQuadCurve(to: CGPoint(x: 11 * sx, y: 15.2 * sy), control: CGPoint(x: 11 * sx, y: 17 * sy))
+        p.addLine(to: CGPoint(x: 11 * sx, y: 10.5 * sy))
+        p.addLine(to: CGPoint(x: 5 * sx, y: 10.5 * sy))
+        // arc to (3, 8.5) — 2x2 rounded corner
+        p.addQuadCurve(to: CGPoint(x: 3 * sx, y: 8.5 * sy), control: CGPoint(x: 3 * sx, y: 10.5 * sy))
+        p.addLine(to: CGPoint(x: 3 * sx, y: 4 * sy))
+        p.addLine(to: CGPoint(x: 1.5 * sx, y: 4 * sy))
+        // arc .5x.5 → to (1, 3.5)
+        p.addQuadCurve(to: CGPoint(x: 1 * sx, y: 3.5 * sy), control: CGPoint(x: 1 * sx, y: 4 * sy))
+        p.closeSubpath()
+        return p
+    }
 }
 
 // MARK: - URL Identifiable
