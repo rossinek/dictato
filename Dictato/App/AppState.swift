@@ -20,6 +20,7 @@ class AppState: ObservableObject {
     @Published var selectedModeIndex: Int = 0
     @Published var isPostProcessing = false
     @Published var isError = false
+    @Published var reTranscribingID: UUID?
 
     var selectedMode: TranscriptionMode {
         modes[min(selectedModeIndex, modes.count - 1)]
@@ -34,6 +35,7 @@ class AppState: ObservableObject {
         log.info("AppState initialized")
         loadModes()
         loadHistory()
+        cleanupOldRecordings()
     }
 
     func selectMode(index: Int) {
@@ -273,12 +275,15 @@ class AppState: ObservableObject {
                         isPostProcessing = false
                     }
 
+                    let audioFileName = self.saveAudioFile(samples: samples, id: nil)
                     let transcription = Transcription(
                         text: text,
                         postProcessedText: processedText,
-                        modeName: mode.name
+                        modeName: mode.name,
+                        audioFileName: audioFileName
                     )
                     transcriptionHistory.insert(transcription, at: 0)
+                    cleanupOldRecordings()
                     saveHistory()
                     PasteService.paste(text: processedText ?? text)
                     NSSound(named: "Funk")?.play()
@@ -301,6 +306,135 @@ class AppState: ObservableObject {
 
             isTranscribing = false
             isPostProcessing = false
+        }
+    }
+
+    // MARK: - Audio Caching
+
+    var recordingsDirectoryURL: URL {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let dir = appSupport.appendingPathComponent("Dictato/Recordings", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    func audioFileURL(for transcription: Transcription) -> URL? {
+        guard let fileName = transcription.audioFileName else { return nil }
+        let url = recordingsDirectoryURL.appendingPathComponent(fileName)
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    private func saveAudioFile(samples: [Float], id: UUID?) -> String? {
+        let fileName = "\((id ?? UUID()).uuidString).wav"
+        let url = recordingsDirectoryURL.appendingPathComponent(fileName)
+
+        let sampleRate: Double = 16000
+        let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(samples.count)) else {
+            log.error("Failed to create audio buffer for caching")
+            return nil
+        }
+        buffer.frameLength = AVAudioFrameCount(samples.count)
+        memcpy(buffer.floatChannelData![0], samples, samples.count * MemoryLayout<Float>.size)
+
+        do {
+            let file = try AVAudioFile(forWriting: url, settings: format.settings)
+            try file.write(from: buffer)
+            log.info("Audio cached: \(fileName)")
+            return fileName
+        } catch {
+            log.error("Failed to cache audio: \(error)")
+            return nil
+        }
+    }
+
+    private func loadAudioSamples(fileName: String) -> [Float]? {
+        let url = recordingsDirectoryURL.appendingPathComponent(fileName)
+        do {
+            let file = try AVAudioFile(forReading: url)
+            let format = AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1)!
+            guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(file.length)) else {
+                return nil
+            }
+            try file.read(into: buffer)
+            return Array(UnsafeBufferPointer(start: buffer.floatChannelData![0], count: Int(buffer.frameLength)))
+        } catch {
+            log.error("Failed to load audio: \(error)")
+            return nil
+        }
+    }
+
+    private func cleanupOldRecordings() {
+        let maxCached = 5
+        // Find indices that have audio files, newest first (history is already newest-first)
+        let indicesWithAudio = transcriptionHistory.indices.filter { transcriptionHistory[$0].audioFileName != nil }
+
+        guard indicesWithAudio.count > maxCached else { return }
+
+        let toRemove = indicesWithAudio.suffix(from: maxCached)
+        for i in toRemove {
+            if let fileName = transcriptionHistory[i].audioFileName {
+                let url = recordingsDirectoryURL.appendingPathComponent(fileName)
+                try? FileManager.default.removeItem(at: url)
+                log.info("Removed old audio: \(fileName)")
+            }
+            transcriptionHistory[i].audioFileName = nil
+        }
+        saveHistory()
+    }
+
+    func reTranscribe(transcriptionID: UUID, withMode mode: TranscriptionMode) {
+        guard !isRecording, !isTranscribing, !isPaused else { return }
+        guard let index = transcriptionHistory.firstIndex(where: { $0.id == transcriptionID }),
+              let audioFileName = transcriptionHistory[index].audioFileName,
+              let samples = loadAudioSamples(fileName: audioFileName) else { return }
+
+        reTranscribingID = transcriptionID
+
+        Task {
+            defer {
+                reTranscribingID = nil
+            }
+
+            do {
+                guard let whisperKit else { return }
+                let results = try await whisperKit.transcribe(
+                    audioArray: samples,
+                    decodeOptions: DecodingOptions(
+                        language: mode.language,
+                        wordTimestamps: false,
+                        chunkingStrategy: .none
+                    )
+                )
+
+                let text = results.map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .joined(separator: " ")
+
+                guard !text.isEmpty else { return }
+
+                var processedText: String?
+                let trimmedPrompt = mode.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+                if mode.provider != .none, let model = mode.model, !trimmedPrompt.isEmpty {
+                    do {
+                        processedText = try await LLMService.postProcess(
+                            provider: mode.provider,
+                            model: model,
+                            systemPrompt: trimmedPrompt,
+                            userMessage: text
+                        )
+                    } catch {
+                        log.error("Re-transcription post-processing failed: \(error)")
+                    }
+                }
+
+                transcriptionHistory[index].text = text
+                transcriptionHistory[index].postProcessedText = processedText
+                transcriptionHistory[index].modeName = mode.name
+                saveHistory()
+                log.info("Re-transcribed with mode: \(mode.name)")
+            } catch {
+                log.error("Re-transcription failed: \(error)")
+            }
         }
     }
 

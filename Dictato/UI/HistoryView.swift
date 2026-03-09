@@ -18,7 +18,7 @@ struct HistoryView: View {
                 } else {
                     LazyVStack(spacing: 12) {
                         ForEach(appState.transcriptionHistory) { item in
-                            HistoryRow(item: item)
+                            HistoryRow(item: item, appState: appState)
                         }
                     }
                 }
@@ -31,11 +31,21 @@ struct HistoryView: View {
 
 private struct HistoryRow: View {
     let item: Transcription
+    @ObservedObject var appState: AppState
     @State private var selectedTab: Int
 
-    init(item: Transcription) {
+    init(item: Transcription, appState: AppState) {
         self.item = item
+        self.appState = appState
         self._selectedTab = State(initialValue: item.postProcessedText != nil ? 1 : 0)
+    }
+
+    private var hasAudio: Bool {
+        appState.audioFileURL(for: item) != nil
+    }
+
+    private var isReTranscribing: Bool {
+        appState.reTranscribingID == item.id
     }
 
     var body: some View {
@@ -50,7 +60,29 @@ private struct HistoryRow: View {
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 8) {
-                if let modeName = item.modeName {
+                if isReTranscribing {
+                    ProgressView()
+                        .controlSize(.small)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                } else if hasAudio {
+                    Menu {
+                        ForEach(appState.modes) { mode in
+                            Button(mode.name) {
+                                appState.reTranscribe(transcriptionID: item.id, withMode: mode)
+                            }
+                        }
+                    } label: {
+                        Text("\(item.modeName ?? "Default") \u{203A}")
+                            .font(.caption)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(.quaternary, in: Capsule())
+                    .fixedSize()
+                } else if let modeName = item.modeName {
                     Text(modeName)
                         .font(.caption)
                         .padding(.horizontal, 8)
@@ -65,6 +97,16 @@ private struct HistoryRow: View {
                 .background(.quaternary, in: Capsule())
 
                 Spacer()
+
+                if hasAudio {
+                    Button {
+                        saveAudioFile()
+                    } label: {
+                        Label("Save Audio", systemImage: "arrow.down.circle")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.borderless)
+                }
 
                 Button {
                     NSPasteboard.general.clearContents()
@@ -85,6 +127,15 @@ private struct HistoryRow: View {
             return processed
         }
         return item.text
+    }
+
+    private func saveAudioFile() {
+        guard let sourceURL = appState.audioFileURL(for: item) else { return }
+        let savePanel = NSSavePanel()
+        savePanel.allowedContentTypes = [.wav]
+        savePanel.nameFieldStringValue = "recording-\(Int(item.date.timeIntervalSince1970)).wav"
+        guard savePanel.runModal() == .OK, let destURL = savePanel.url else { return }
+        try? FileManager.default.copyItem(at: sourceURL, to: destURL)
     }
 
     private func tabButton(_ label: String, tag: Int, disabled: Bool = false) -> some View {
