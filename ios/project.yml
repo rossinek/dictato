@@ -1,0 +1,28 @@
+name: Dictato
+options:
+  bundleIdPrefix: com.dictato
+  deploymentTarget:
+    iOS: "17.0"
+
+packages:
+  FluidAudio:
+    url: https://github.com/FluidInference/FluidAudio.git
+    from: "0.12.2"
+
+targets:
+  Dictato:
+    type: application
+    platform: iOS
+    sources:
+      - Dictato
+    settings:
+      base:
+        INFOPLIST_FILE: Dictato/Resources/Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: com.dictato.ios
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: 1
+        SWIFT_VERSION: "5.9"
+        DEVELOPMENT_TEAM: H7B584W2D6
+        CODE_SIGN_STYLE: Manual
+    dependencies:
+      - package: FluidAudio
