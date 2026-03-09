@@ -29,7 +29,7 @@ class FloatingPanel: NSPanel {
         let hostingView = NSHostingView(rootView: contentView)
         self.contentView = hostingView
         let size = hostingView.fittingSize
-        setContentSize(NSSize(width: max(360, size.width), height: size.height))
+        setContentSize(size)
 
         restorePosition()
 
@@ -61,7 +61,7 @@ class FloatingPanel: NSPanel {
                     let state = AppState.shared
                     if state.isTranscribing || state.isPostProcessing {
                         state.cancelTranscription()
-                    } else {
+                    } else if state.isRecording {
                         state.togglePause()
                     }
                 }

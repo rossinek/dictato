@@ -47,11 +47,12 @@ struct RecordingOverlay: View {
             .padding(.horizontal, 24)
             .padding(.top, 20)
             .padding(.bottom, 14)
-            .frame(width: 360, height: 90)
+            .frame(minWidth: 250)
+            .fixedSize()
             .glassEffect(.clear.interactive(), in: .capsule)
 
             // Mode pills — separate row below, centered
-            if modes.count > 1 && !isTranscribing {
+            if modes.count > 1 && !isTranscribing && !isPostProcessing {
                 HStack(spacing: 6) {
                     ForEach(Array(modes.enumerated()), id: \.element.id) { index, mode in
                         let isSelected = index == selectedModeIndex
@@ -117,8 +118,7 @@ struct RecordingOverlay: View {
             ]
         } else if isPaused {
             return [
-                Action(key: shortcutLabel, label: "Transcribe") { AppState.shared.toggleRecording() },
-                Action(key: "esc", label: "Resume") { AppState.shared.togglePause() },
+                Action(key: shortcutLabel, label: "Resume") { AppState.shared.togglePause() },
                 Action(key: "⏎", label: "Discard") { AppState.shared.discardRecording() },
             ]
         } else {

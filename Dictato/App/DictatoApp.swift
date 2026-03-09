@@ -127,11 +127,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if panel == nil {
             panel = FloatingPanel(contentView: overlay)
             panel?.installKeyMonitor()
-        } else {
+        } else if let panel {
+            let oldMidX = panel.frame.midX
             let hostingView = NSHostingView(rootView: overlay)
-            panel?.contentView = hostingView
+            panel.contentView = hostingView
             let size = hostingView.fittingSize
-            panel?.setContentSize(NSSize(width: max(360, size.width), height: size.height))
+            panel.setContentSize(size)
+            let newX = oldMidX - size.width / 2
+            panel.setFrameOrigin(NSPoint(x: newX, y: panel.frame.origin.y))
         }
         panel?.orderFront(nil)
     }
