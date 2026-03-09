@@ -27,57 +27,102 @@ struct SettingsView: View {
     ]
 
     var body: some View {
-        Form {
-            Section("API Keys") {
-                SecureField("OpenAI API Key", text: $openAIKey)
-                SecureField("Groq API Key", text: $groqKey)
-            }
+        ScrollView {
+            VStack(spacing: 24) {
+                // API Keys
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("API Keys")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 4)
 
-            Section("Modes") {
-                ForEach(appState.modes) { mode in
-                    let modeID = mode.id
-                    ModeRow(
-                        mode: Binding(
-                            get: { appState.modes.first(where: { $0.id == modeID }) ?? mode },
-                            set: {
+                    VStack(spacing: 0) {
+                        apiKeyRow(title: "OpenAI", text: $openAIKey)
+                        Divider().padding(.leading, 16)
+                        apiKeyRow(title: "Groq", text: $groqKey)
+                    }
+                    .glassEffect(.regular, in: .rect(cornerRadius: 16))
+                }
+
+                // Modes
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Modes")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 4)
+
+                    ForEach(appState.modes) { mode in
+                        let modeID = mode.id
+                        ModeCard(
+                            mode: Binding(
+                                get: { appState.modes.first(where: { $0.id == modeID }) ?? mode },
+                                set: {
+                                    if let idx = appState.modes.firstIndex(where: { $0.id == modeID }) {
+                                        appState.modes[idx] = $0
+                                        appState.saveModes()
+                                    }
+                                }
+                            ),
+                            canDelete: appState.modes.count > 1,
+                            onDelete: {
                                 if let idx = appState.modes.firstIndex(where: { $0.id == modeID }) {
-                                    appState.modes[idx] = $0
-                                    appState.saveModes()
+                                    withAnimation(.spring(duration: 0.3)) {
+                                        appState.modes.remove(at: idx)
+                                        if appState.selectedModeIndex >= appState.modes.count {
+                                            appState.selectedModeIndex = 0
+                                        }
+                                        appState.saveModes()
+                                    }
                                 }
                             }
-                        ),
-                        canDelete: appState.modes.count > 1,
-                        onDelete: {
-                            if let idx = appState.modes.firstIndex(where: { $0.id == modeID }) {
-                                appState.modes.remove(at: idx)
-                                if appState.selectedModeIndex >= appState.modes.count {
-                                    appState.selectedModeIndex = 0
-                                }
-                                appState.saveModes()
-                            }
-                        }
-                    )
-                }
+                        )
+                    }
 
-                Button {
-                    let mode = TranscriptionMode(
-                        id: UUID(),
-                        name: "Mode \(appState.modes.count + 1)",
-                        language: nil,
-                        prompt: ""
-                    )
-                    appState.modes.append(mode)
-                    appState.saveModes()
-                } label: {
-                    Label("Add Mode", systemImage: "plus")
+                    Button {
+                        withAnimation(.spring(duration: 0.3)) {
+                            let mode = TranscriptionMode(
+                                id: UUID(),
+                                name: "Mode \(appState.modes.count + 1)",
+                                language: nil,
+                                prompt: ""
+                            )
+                            appState.modes.append(mode)
+                            appState.saveModes()
+                        }
+                    } label: {
+                        Label("Add Mode", systemImage: "plus")
+                            .font(.body.weight(.medium))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                    }
+                    .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 16))
                 }
             }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .onTapGesture {
+            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         }
         .navigationTitle("Settings")
     }
+
+    private func apiKeyRow(title: String, text: Binding<String>) -> some View {
+        HStack {
+            Text(title)
+                .frame(width: 60, alignment: .leading)
+            SecureField("API Key", text: text)
+                .textContentType(.password)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+    }
 }
 
-private struct ModeRow: View {
+// MARK: - Mode Card
+
+private struct ModeCard: View {
     @Binding var mode: TranscriptionMode
     let canDelete: Bool
     let onDelete: () -> Void
@@ -85,117 +130,123 @@ private struct ModeRow: View {
     @State private var availableModels: [String] = []
     @State private var isLoadingModels = false
     @State private var modelLoadError: String?
-    @State private var modelSearch = ""
-    @State private var showModelList = false
+    @State private var showModelPicker = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 14) {
+            // Name + delete
             HStack {
-                TextField("Name", text: $mode.name)
+                TextField("Mode name", text: $mode.name)
+                    .font(.body.weight(.medium))
 
                 if canDelete {
-                    Button(role: .destructive) {
-                        onDelete()
-                    } label: {
+                    Button(role: .destructive, action: onDelete) {
                         Image(systemName: "trash")
+                            .font(.system(size: 14))
+                            .foregroundStyle(.red)
                     }
                 }
             }
 
-            Picker("Language", selection: languageBinding) {
-                ForEach(SettingsView.languages, id: \.0) { code, name in
-                    Text(name).tag(code as String?)
+            Divider()
+
+            // Language picker
+            HStack {
+                Text("Language")
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Picker("Language", selection: languageBinding) {
+                    ForEach(SettingsView.languages, id: \.0) { code, name in
+                        Text(name).tag(code as String?)
+                    }
                 }
+                .labelsHidden()
+                .tint(.primary)
             }
 
-            Picker("Post-processing", selection: $mode.provider) {
-                ForEach(LLMProvider.allCases, id: \.self) { provider in
-                    Text(provider.displayName).tag(provider)
+            Divider()
+
+            // Post-processing picker
+            HStack {
+                Text("Post-processing")
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Picker("Provider", selection: $mode.provider) {
+                    ForEach(LLMProvider.allCases, id: \.self) { provider in
+                        Text(provider.displayName).tag(provider)
+                    }
                 }
+                .labelsHidden()
+                .tint(.primary)
             }
 
             if mode.provider != .none {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        TextField("Search models...", text: $modelSearch)
-                            .textFieldStyle(.roundedBorder)
-                            .onTapGesture {
-                                if availableModels.isEmpty && !isLoadingModels {
-                                    fetchModels()
-                                }
-                                showModelList = true
-                            }
+                Divider()
 
-                        if isLoadingModels {
-                            ProgressView()
-                                .controlSize(.small)
-                        }
-
-                        Button {
+                // Model selector
+                HStack {
+                    Text("Model")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button {
+                        if availableModels.isEmpty && !isLoadingModels {
                             fetchModels()
-                        } label: {
-                            Image(systemName: "arrow.clockwise")
                         }
-                    }
-
-                    if let error = modelLoadError {
-                        Text(error)
-                            .font(.caption)
-                            .foregroundStyle(.red)
-                    }
-
-                    if showModelList {
-                        let filtered = modelSearch.isEmpty ? availableModels :
-                            availableModels.filter { $0.localizedCaseInsensitiveContains(modelSearch) }
-
-                        if !filtered.isEmpty {
-                            ScrollView {
-                                LazyVStack(alignment: .leading, spacing: 0) {
-                                    ForEach(filtered, id: \.self) { model in
-                                        Text(model)
-                                            .font(.system(.body, design: .monospaced))
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-                                            .padding(.horizontal, 8)
-                                            .padding(.vertical, 6)
-                                            .background(mode.model == model ? Color.accentColor.opacity(0.2) : Color.clear, in: RoundedRectangle(cornerRadius: 4))
-                                            .contentShape(Rectangle())
-                                            .onTapGesture {
-                                                mode.model = model
-                                                showModelList = false
-                                            }
-                                    }
-                                }
-                                .padding(4)
+                        showModelPicker = true
+                    } label: {
+                        HStack(spacing: 4) {
+                            if isLoadingModels {
+                                ProgressView()
+                                    .controlSize(.small)
                             }
-                            .frame(maxHeight: 150)
-                            .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+                            Text(mode.model ?? "Select model")
+                                .foregroundStyle(mode.model != nil ? .primary : .secondary)
+                                .lineLimit(1)
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
                         }
-                    }
-
-                    if let selected = mode.model {
-                        Text("Selected: \(selected)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
                     }
                 }
+                .sheet(isPresented: $showModelPicker) {
+                    ModelPickerSheet(
+                        models: availableModels,
+                        selected: $mode.model,
+                        isLoading: isLoadingModels,
+                        error: modelLoadError,
+                        onRefresh: { fetchModels() }
+                    )
+                    .presentationDetents([.medium, .large])
+                }
 
-                TextEditor(text: $mode.prompt)
-                    .font(.body)
-                    .frame(minHeight: 60, maxHeight: 120)
-                    .scrollContentBackground(.hidden)
-                    .padding(8)
-                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 10))
-                    .overlay(alignment: .topLeading) {
-                        if mode.prompt.isEmpty {
-                            Text("System prompt for post-processing")
-                                .foregroundStyle(.tertiary)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 12)
-                                .allowsHitTesting(false)
+                Divider()
+
+                // Prompt
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("System prompt")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    TextEditor(text: $mode.prompt)
+                        .font(.body)
+                        .frame(minHeight: 80, maxHeight: 120)
+                        .scrollContentBackground(.hidden)
+                        .padding(10)
+                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 10))
+                        .overlay(alignment: .topLeading) {
+                            if mode.prompt.isEmpty {
+                                Text("Instructions for post-processing...")
+                                    .foregroundStyle(.tertiary)
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 19)
+                                    .allowsHitTesting(false)
+                            }
                         }
-                    }
+                }
             }
         }
+        .padding(16)
+        .glassEffect(.regular, in: .rect(cornerRadius: 16))
     }
 
     private var languageBinding: Binding<String?> {
@@ -221,5 +272,81 @@ private struct ModeRow: View {
             }
             isLoadingModels = false
         }
+    }
+}
+
+// MARK: - Model Picker Sheet
+
+private struct ModelPickerSheet: View {
+    let models: [String]
+    @Binding var selected: String?
+    let isLoading: Bool
+    let error: String?
+    let onRefresh: () -> Void
+    @State private var search = ""
+    @Environment(\.dismiss) private var dismiss
+
+    private var filtered: [String] {
+        search.isEmpty ? models : models.filter { $0.localizedCaseInsensitiveContains(search) }
+    }
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if isLoading && models.isEmpty {
+                    ProgressView("Loading models...")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if let error {
+                    VStack(spacing: 12) {
+                        Text(error)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                        Button("Retry", action: onRefresh)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    List(filtered, id: \.self) { model in
+                        Button {
+                            selected = model
+                            dismiss()
+                        } label: {
+                            HStack {
+                                Text(model)
+                                    .font(.system(.body, design: .monospaced))
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                if selected == model {
+                                    Image(systemName: "checkmark")
+                                        .foregroundStyle(.blue)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Select Model")
+            .navigationBarTitleDisplayMode(.inline)
+            .searchable(text: $search, prompt: "Search models")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        onRefresh()
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Previews
+
+#Preview("Settings") {
+    NavigationStack {
+        SettingsView()
     }
 }

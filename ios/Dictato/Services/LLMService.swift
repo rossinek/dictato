@@ -10,7 +10,7 @@ enum LLMProvider: String, Codable, CaseIterable {
 
     var displayName: String {
         switch self {
-        case .none: "No post-processing"
+        case .none: "None"
         case .openai: "OpenAI"
         case .groq: "Groq"
         }
