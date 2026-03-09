@@ -17,6 +17,7 @@ struct RecordingOverlay: View {
 
     var body: some View {
         VStack(spacing: 8) {
+
             // Main pill
             VStack(spacing: 6) {
                 HStack(spacing: 8) {
@@ -56,39 +57,41 @@ struct RecordingOverlay: View {
             .overlay(GeometryReader { geo in
                 Color.clear.preference(key: PillSizeKey.self, value: geo.size)
             })
-            .glassEffect(.clear.interactive(), in: .capsule)
+            .glassEffect(.clear, in: .capsule)
 
             // Mode pills — separate row below, centered
             if modes.count > 1 && !isTranscribing && !isPostProcessing {
-                HStack(spacing: 6) {
-                    ForEach(Array(modes.enumerated()), id: \.element.id) { index, mode in
-                        let isSelected = index == selectedModeIndex
-                        HStack(spacing: 5) {
-                            Text("\(index + 1)")
-                                .font(.system(size: 10, weight: .medium, design: .rounded))
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 2)
-                                .background(.quaternary, in: RoundedRectangle(cornerRadius: 3))
+              GlassEffectContainer(spacing: 7) {
+                HStack(spacing: 0) {
+                  ForEach(Array(modes.enumerated()), id: \.element.id) { index, mode in
+                    let isSelected = index == selectedModeIndex
+                    HStack(spacing: 5) {
+                      Text("\(index + 1)")
+                        .font(.system(size: 10, weight: .medium, design: .rounded))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 3))
 
-                            Text(mode.name)
-                                .font(.system(size: 11, weight: isSelected ? .bold : .medium))
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .glassEffect(
-                            isSelected ? .clear.interactive() : .clear,
-                            in: .capsule
-                        )
-                        .foregroundStyle(isSelected ? .primary : .secondary)
-                        .contentShape(Capsule())
-                        .onTapGesture { AppState.shared.selectMode(index: index) }
+                      Text(mode.name)
+                        .font(.system(size: 11, weight: isSelected ? .bold : .medium))
                     }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .glassEffect(
+                      .clear,
+                      in: .capsule
+                    )
+                    .foregroundStyle(isSelected ? .primary : .secondary)
+                    .contentShape(Capsule())
+                    .onTapGesture { AppState.shared.selectMode(index: index) }
+                  }
                 }
+              }
             }
-        }
-        .onAppear {
-            pulse = true
-        }
+          }
+          .onAppear {
+              pulse = true
+          }
     }
 
     private var dotColor: Color {
@@ -134,5 +137,65 @@ struct RecordingOverlay: View {
                 Action(key: "esc", label: "Pause") { AppState.shared.togglePause() },
             ]
         }
+    }
+}
+
+#Preview("Recording") {
+    let modes = [
+        TranscriptionMode(id: UUID(), name: "Default", language: nil, prompt: ""),
+        TranscriptionMode(id: UUID(), name: "Email", language: "en", prompt: "Format as email"),
+    ]
+    VStack(spacing: 0) {
+        RecordingOverlay(
+            isRecording: true, isPaused: false, isTranscribing: false, isPostProcessing: false,
+            modes: modes, selectedModeIndex: 0
+        )
+        .frame(width: 400, height: 200)
+        .background(.black)
+
+        RecordingOverlay(
+            isRecording: true, isPaused: false, isTranscribing: false, isPostProcessing: false,
+            modes: modes, selectedModeIndex: 0
+        )
+        .frame(width: 400, height: 200)
+        .background(.white)
+    }
+}
+
+#Preview("Paused") {
+    let mode = [TranscriptionMode(id: UUID(), name: "Default", language: nil, prompt: "")]
+    HStack(spacing: 0) {
+        RecordingOverlay(
+            isRecording: false, isPaused: true, isTranscribing: false, isPostProcessing: false,
+            modes: mode, selectedModeIndex: 0
+        )
+        .frame(width: 400, height: 200)
+        .background(.black)
+
+        RecordingOverlay(
+            isRecording: false, isPaused: true, isTranscribing: false, isPostProcessing: false,
+            modes: mode, selectedModeIndex: 0
+        )
+        .frame(width: 400, height: 200)
+        .background(.white)
+    }
+}
+
+#Preview("Transcribing") {
+    let mode = [TranscriptionMode(id: UUID(), name: "Default", language: nil, prompt: "")]
+    HStack(spacing: 0) {
+        RecordingOverlay(
+            isRecording: false, isPaused: false, isTranscribing: true, isPostProcessing: false,
+            modes: mode, selectedModeIndex: 0
+        )
+        .frame(width: 400, height: 200)
+        .background(.black)
+
+        RecordingOverlay(
+            isRecording: false, isPaused: false, isTranscribing: true, isPostProcessing: false,
+            modes: mode, selectedModeIndex: 0
+        )
+        .frame(width: 400, height: 200)
+        .background(.white)
     }
 }
