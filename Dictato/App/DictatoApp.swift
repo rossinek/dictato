@@ -64,6 +64,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var stateObservation: Task<Void, Never>?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        let runningInstances = NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier!)
+        if runningInstances.count > 1 {
+            NSApp.terminate(nil)
+            return
+        }
+
         let appState = AppState.shared
 
         Task { @MainActor in
