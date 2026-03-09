@@ -124,9 +124,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             modes: appState.modes,
             selectedModeIndex: appState.selectedModeIndex
         )
+        // Measure pill-only size (overlay with single mode hides mode pills)
+        let pillOnly = RecordingOverlay(
+            isRecording: recording,
+            isPaused: isPaused,
+            isTranscribing: transcribing,
+            isPostProcessing: postProcessing,
+            modes: [appState.modes.first ?? .default],
+            selectedModeIndex: 0
+        )
+        let pillMeasure = NSHostingView(rootView: pillOnly)
+        let measuredPillSize = pillMeasure.fittingSize
+
         if panel == nil {
             panel = FloatingPanel(contentView: overlay)
             panel?.installKeyMonitor()
+            panel?.installMouseMonitor()
         } else if let panel {
             let oldMidX = panel.frame.midX
             let hostingView = NSHostingView(rootView: overlay)
@@ -136,12 +149,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let newX = oldMidX - size.width / 2
             panel.setFrameOrigin(NSPoint(x: newX, y: panel.frame.origin.y))
         }
+        panel?.pillSize = measuredPillSize
         panel?.orderFront(nil)
     }
 
     @MainActor
     private func hidePanel() {
+        panel?.savePosition()
         panel?.removeKeyMonitor()
+        panel?.removeMouseMonitor()
         panel?.orderOut(nil)
         panel = nil
     }

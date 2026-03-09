@@ -10,6 +10,12 @@ class FloatingPanel: NSPanel {
     private var localKeyMonitor: Any?
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
+    private var guideWindowTop: NSWindow?
+    private var guideWindowBottom: NSWindow?
+    private var ghostWindow: NSWindow?
+    private var shouldSnap = false
+    private var mouseMonitor: Any?
+    var pillSize: NSSize = .zero
 
     init(contentView: some View) {
         super.init(
@@ -113,8 +119,122 @@ class FloatingPanel: NSPanel {
         }
     }
 
+    private static let snapThreshold: CGFloat = 20
+
+    func installMouseMonitor() {
+        guard mouseMonitor == nil else { return }
+        mouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp) { [weak self] _ in
+            guard let self, self.shouldSnap, let screen = self.screen ?? NSScreen.main else { return }
+            let snappedX = screen.visibleFrame.midX - self.frame.width / 2
+            self.setFrameOrigin(NSPoint(x: snappedX, y: self.frame.origin.y))
+            self.hideSnapIndicators()
+            self.savePosition()
+        }
+    }
+
+    func removeMouseMonitor() {
+        if let mouseMonitor {
+            NSEvent.removeMonitor(mouseMonitor)
+            self.mouseMonitor = nil
+        }
+    }
+
     @objc private func windowDidMove(_ notification: Notification) {
-        savePosition()
+        guard let screen = screen ?? NSScreen.main else { return }
+        let screenMidX = screen.visibleFrame.midX
+        let panelMidX = frame.midX
+
+        if abs(panelMidX - screenMidX) < Self.snapThreshold {
+            shouldSnap = true
+            showGhost(on: screen)
+        } else {
+            shouldSnap = false
+            hideSnapIndicators()
+        }
+    }
+
+    private func showGuide(on screen: NSScreen, ghostRect: NSRect) {
+        let screenFrame = screen.visibleFrame
+        let x = screen.frame.midX - 0.5
+
+        // Top segment: from ghost top to visible screen top
+        let gap: CGFloat = 4
+        let topRect = NSRect(x: x, y: ghostRect.maxY + gap, width: 1, height: screenFrame.maxY - ghostRect.maxY - gap)
+        // Bottom segment: from visible screen bottom to ghost bottom
+        let bottomRect = NSRect(x: x, y: screenFrame.minY, width: 1, height: ghostRect.minY - screenFrame.minY - gap)
+
+        guideWindowTop = updateOrCreateGuideWindow(existing: guideWindowTop, rect: topRect)
+        guideWindowBottom = updateOrCreateGuideWindow(existing: guideWindowBottom, rect: bottomRect)
+    }
+
+    private func updateOrCreateGuideWindow(existing: NSWindow?, rect: NSRect) -> NSWindow {
+        if let existing {
+            existing.setFrame(rect, display: true)
+            existing.contentView?.frame = NSRect(origin: .zero, size: rect.size)
+            existing.contentView?.needsDisplay = true
+            existing.orderFront(nil)
+            return existing
+        }
+
+        let window = NSWindow(
+            contentRect: rect,
+            styleMask: .borderless,
+            backing: .buffered,
+            defer: false
+        )
+        window.level = .floating
+        window.isOpaque = false
+        window.ignoresMouseEvents = true
+        window.collectionBehavior = [.canJoinAllSpaces]
+
+        let dashedView = DashedLineView(frame: NSRect(origin: .zero, size: rect.size))
+        window.contentView = dashedView
+        window.backgroundColor = .clear
+        window.orderFront(nil)
+        return window
+    }
+
+    private func showGhost(on screen: NSScreen) {
+        let size = pillSize.width > 0 ? pillSize : frame.size
+        let snappedX = screen.visibleFrame.midX - size.width / 2
+        let ghostY = frame.origin.y + frame.height - size.height
+        let ghostRect = NSRect(x: snappedX, y: ghostY, width: size.width, height: size.height)
+
+        if let ghostWindow {
+            ghostWindow.setFrame(ghostRect, display: true)
+            ghostWindow.contentView?.frame = NSRect(origin: .zero, size: ghostRect.size)
+            ghostWindow.contentView?.needsDisplay = true
+            ghostWindow.orderFront(nil)
+        } else {
+            let window = NSWindow(
+                contentRect: ghostRect,
+                styleMask: .borderless,
+                backing: .buffered,
+                defer: false
+            )
+            window.level = .floating
+            window.isOpaque = false
+            window.ignoresMouseEvents = true
+            window.collectionBehavior = [.canJoinAllSpaces]
+
+            let ghostView = GhostView(frame: NSRect(origin: .zero, size: ghostRect.size))
+            window.contentView = ghostView
+            window.backgroundColor = .clear
+            window.orderFront(nil)
+            ghostWindow = window
+        }
+
+        showGuide(on: screen, ghostRect: ghostWindow?.frame ?? ghostRect)
+    }
+
+    private func hideSnapIndicators() {
+        guideWindowTop?.orderOut(nil)
+        guideWindowTop = nil
+        guideWindowBottom?.orderOut(nil)
+        guideWindowBottom = nil
+        ghostWindow?.orderOut(nil)
+        ghostWindow = nil
+        shouldSnap = false
     }
 
     func savePosition() {
@@ -161,5 +281,37 @@ class FloatingPanel: NSPanel {
 
     deinit {
         removeKeyMonitor()
+        removeMouseMonitor()
+        hideSnapIndicators()
+    }
+}
+
+private class DashedLineView: NSView {
+    override func draw(_ dirtyRect: NSRect) {
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+        context.setStrokeColor(NSColor.systemBlue.withAlphaComponent(0.5).cgColor)
+        context.setLineWidth(1)
+        context.setLineDash(phase: 0, lengths: [4, 4])
+        context.move(to: CGPoint(x: 0.5, y: 0))
+        context.addLine(to: CGPoint(x: 0.5, y: bounds.height))
+        context.strokePath()
+    }
+}
+
+private class GhostView: NSView {
+    override func draw(_ dirtyRect: NSRect) {
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+        let rect = bounds.insetBy(dx: 1, dy: 1)
+        let cornerRadius = min(rect.height / 2, rect.width / 2)
+        let path = CGPath(roundedRect: rect, cornerWidth: cornerRadius, cornerHeight: cornerRadius, transform: nil)
+        context.setStrokeColor(NSColor.systemBlue.withAlphaComponent(0.4).cgColor)
+        context.setLineWidth(1.5)
+        context.setLineDash(phase: 0, lengths: [6, 4])
+        context.addPath(path)
+        context.strokePath()
+
+        context.setFillColor(NSColor.systemBlue.withAlphaComponent(0.05).cgColor)
+        context.addPath(path)
+        context.fillPath()
     }
 }

@@ -1,6 +1,11 @@
 import KeyboardShortcuts
 import SwiftUI
 
+struct PillSizeKey: PreferenceKey {
+    static let defaultValue: CGSize = .zero
+    static func reduce(value: inout CGSize, nextValue: () -> CGSize) { value = nextValue() }
+}
+
 struct RecordingOverlay: View {
     let isRecording: Bool
     let isPaused: Bool
@@ -8,7 +13,6 @@ struct RecordingOverlay: View {
     let isPostProcessing: Bool
     let modes: [TranscriptionMode]
     let selectedModeIndex: Int
-
     @State private var pulse = false
 
     var body: some View {
@@ -49,6 +53,9 @@ struct RecordingOverlay: View {
             .padding(.bottom, 14)
             .frame(minWidth: 250)
             .fixedSize()
+            .overlay(GeometryReader { geo in
+                Color.clear.preference(key: PillSizeKey.self, value: geo.size)
+            })
             .glassEffect(.clear.interactive(), in: .capsule)
 
             // Mode pills — separate row below, centered
