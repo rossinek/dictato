@@ -8,32 +8,28 @@ struct HomeView: View {
     @State private var navigateToHistory = false
 
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 12) {
             Spacer()
 
             if !appState.isModelLoaded {
                 modelLoadingView
-            } else if appState.isError {
-                errorView
-            } else if appState.isPostProcessing {
-                statusView(color: .blue, text: "Post-processing...", pulsing: false)
-                ProgressView()
-                cancelButton
-            } else if appState.isTranscribing {
-                statusView(color: .orange, text: "Transcribing...", pulsing: false)
-                ProgressView()
-                cancelButton
-            } else if appState.isPaused {
-                statusView(color: .yellow, text: "Paused", pulsing: false)
-                pausedButtons
-            } else if appState.isRecording {
-                statusView(color: .red, text: "Recording...", pulsing: true)
-                modePills
-                recordingButtons
             } else {
+//                if appState.isError {
+//                    statusLabel(text: "Transcription failed", color: .red)
+//                } else if appState.isPostProcessing {
+//                    statusLabel(text: "Post-processing...", color: .blue)
+//                } else if appState.isTranscribing {
+//                    statusLabel(text: "Transcribing...", color: .orange)
+//                } else if appState.isPaused {
+//                    statusLabel(text: "Paused", color: .yellow)
+//                } else if appState.isRecording {
+//                    statusLabel(text: "Recording...", color: .red)
+//                } else {
+//                    modePills
+                }
+
+                buttonRow
                 modePills
-                recordButton
-            }
 
             Spacer()
 
@@ -94,121 +90,166 @@ struct HomeView: View {
         }
     }
 
-    private func statusView(color: Color, text: String, pulsing: Bool) -> some View {
-        HStack(spacing: 8) {
-            Circle()
-                .fill(color)
-                .frame(width: 12, height: 12)
-                .scaleEffect(pulsing ? 1.3 : 1.0)
-                .animation(pulsing ? .easeInOut(duration: 0.8).repeatForever(autoreverses: true) : .default, value: pulsing)
+    private func statusLabel(text: String, color: Color) -> some View {
+        Text(text)
+            .font(.system(size: 16, weight: .semibold))
+            .foregroundStyle(color)
+    }
 
-            Text(text)
-                .font(.system(size: 16, weight: .semibold))
-        }
+    private var pillsDisabled: Bool {
+        appState.isError || appState.isPostProcessing || appState.isTranscribing
     }
 
     private var modePills: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
+      GlassEffectContainer(spacing: 16){
+            HStack(spacing: 2) {
                 ForEach(Array(appState.modes.enumerated()), id: \.element.id) { index, mode in
                     Text(mode.name)
                         .font(.caption)
+                        .bold(appState.selectedModeIndex == index)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
-                        .background(
-                            appState.selectedModeIndex == index ? Color.accentColor : Color.secondary.opacity(0.2),
-                            in: Capsule()
-                        )
+                        .glassEffect(.clear)
                         .foregroundStyle(appState.selectedModeIndex == index ? .white : .primary)
                         .onTapGesture {
-                            appState.selectMode(index: index)
+                            if !pillsDisabled {
+                                appState.selectMode(index: index)
+                            }
                         }
                 }
             }
             .padding(.horizontal, 4)
         }
+        .opacity(pillsDisabled ? 0.4 : 1.0)
+        .animation(.default, value: pillsDisabled)
     }
 
-    private var recordButton: some View {
-        Button {
-            appState.startRecording()
-        } label: {
-            Image(systemName: "mic.fill")
-                .font(.system(size: 32))
-                .foregroundStyle(.white)
-                .frame(width: 80, height: 80)
-                .background(.red, in: Circle())
-        }
+    // MARK: - Central Button
+
+    @State private var pulsing = false
+
+    private var centralButtonIcon: String {
+        if appState.isError { return "xmark" }
+        if appState.isPostProcessing { return "sparkles" }
+        if appState.isTranscribing { return "waveform" }
+        if appState.isPaused { return "play.fill" }
+        if appState.isRecording { return "stop.fill" }
+        return "mic.fill"
     }
 
-    private var recordingButtons: some View {
-        HStack(spacing: 24) {
-            Button {
-                appState.togglePause()
-            } label: {
-                Label("Pause", systemImage: "pause.fill")
-                    .font(.body.weight(.medium))
-            }
-            .buttonStyle(.bordered)
-
-            Button {
-                appState.stopAndTranscribe()
-            } label: {
-                Label("Stop", systemImage: "stop.fill")
-                    .font(.body.weight(.medium))
-                    .foregroundStyle(.white)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(.red)
-        }
+    private var centralButtonColor: Color {
+        if appState.isError { return .red }
+        if appState.isPostProcessing { return .blue }
+        if appState.isTranscribing { return .orange }
+        if appState.isPaused { return .yellow }
+        return .red
     }
 
-    private var pausedButtons: some View {
-        HStack(spacing: 24) {
-            Button {
-                appState.togglePause()
-            } label: {
-                Label("Resume", systemImage: "play.fill")
-                    .font(.body.weight(.medium))
-            }
-            .buttonStyle(.bordered)
-
-            Button(role: .destructive) {
-                appState.discardRecording()
-            } label: {
-                Label("Discard", systemImage: "trash")
-                    .font(.body.weight(.medium))
-            }
-            .buttonStyle(.bordered)
-        }
+    private var centralButtonEnabled: Bool {
+        !appState.isError && !appState.isPostProcessing && !appState.isTranscribing
     }
 
-    private var cancelButton: some View {
-        Button("Cancel") {
-            appState.cancelTranscription()
-        }
-        .buttonStyle(.bordered)
+    private var shouldPulse: Bool {
+        appState.isRecording || appState.isPostProcessing
     }
 
-    private var errorView: some View {
-        VStack(spacing: 16) {
-            statusView(color: .red, text: "Transcription failed", pulsing: false)
+    private var hasLeftSecondary: Bool {
+        appState.isRecording || appState.isPaused || appState.isTranscribing || appState.isPostProcessing || appState.isError
+    }
 
-            HStack(spacing: 16) {
-                Button("Dismiss") {
-                    appState.dismissError()
+    private var hasRightSecondary: Bool {
+        appState.isError
+    }
+
+    private var leftSecondaryIcon: String {
+        if appState.isRecording { return "pause.fill" }
+        if appState.isPaused { return "trash" }
+        if appState.isTranscribing || appState.isPostProcessing { return "xmark" }
+        if appState.isError { return "arrow.counterclockwise" }
+        return "circle"
+    }
+
+    private var leftSecondaryTint: Color? {
+        if appState.isPaused { return .red }
+        return nil
+    }
+
+    private var buttonRow: some View {
+        GlassEffectContainer(spacing: 20) {
+            HStack(spacing: 4) {
+                // Left secondary — always present, animated via offset+opacity
+                smallCircleButton(icon: leftSecondaryIcon, tint: leftSecondaryTint, visible: hasLeftSecondary) {
+                    withAnimation(.spring(duration: 0.4, bounce: 0.2)) {
+                        if appState.isRecording { appState.togglePause() }
+                        else if appState.isPaused { appState.discardRecording() }
+                        else if appState.isTranscribing || appState.isPostProcessing { appState.cancelTranscription() }
+                        else if appState.isError { appState.dismissError() }
+                    }
                 }
-                .buttonStyle(.bordered)
+                .offset(x: hasLeftSecondary ? 0 : 52)
+                .allowsHitTesting(hasLeftSecondary)
 
-                Button("Save Recording") {
-                    appState.saveFailedRecording()
+                // Main button
+                Button {
+                    withAnimation(.spring(duration: 0.4, bounce: 0.2)) {
+                        if appState.isPaused {
+                            appState.togglePause()
+                        } else if appState.isRecording {
+                            appState.stopAndTranscribe()
+                        } else {
+                            appState.startRecording()
+                        }
+                    }
+                } label: {
+                    Image(systemName: centralButtonIcon)
+                        .font(.system(size: 32))
+                        .foregroundStyle(centralButtonColor)
+                        .frame(width: 80, height: 80)
+                        .scaleEffect(pulsing ? 1.08 : 1.0)
+                        .contentTransition(.symbolEffect(.replace))
                 }
-                .buttonStyle(.borderedProminent)
+                .glassEffect(.clear.tint(centralButtonColor.opacity(0.1)).interactive(), in: .circle)
+                .disabled(!centralButtonEnabled)
+                .zIndex(1)
+                .onChange(of: shouldPulse) { _, newValue in
+                    if newValue {
+                        withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
+                            pulsing = true
+                        }
+                    } else {
+                        withAnimation(.default) {
+                            pulsing = false
+                        }
+                    }
+                }
+
+                // Right secondary — always present, animated via offset+opacity
+                smallCircleButton(icon: "square.and.arrow.up", tint: .blue, visible: hasRightSecondary) {
+                    withAnimation(.spring(duration: 0.4, bounce: 0.2)) {
+                        appState.saveFailedRecording()
+                    }
+                }
+                .offset(x: hasRightSecondary ? 0 : -52)
+                .allowsHitTesting(hasRightSecondary)
+                .sheet(item: $appState.failedRecordingURL) { url in
+                    ShareSheet(activityItems: [url])
+                }
             }
         }
-        .sheet(item: $appState.failedRecordingURL) { url in
-            ShareSheet(activityItems: [url])
+        .animation(.spring(duration: 0.4, bounce: 0.2), value: hasLeftSecondary)
+        .animation(.spring(duration: 0.4, bounce: 0.2), value: hasRightSecondary)
+        .animation(.spring(duration: 0.3, bounce: 0.15), value: leftSecondaryIcon)
+    }
+
+    private func smallCircleButton(icon: String, tint: Color?, visible: Bool = true, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 18))
+                .foregroundStyle(tint ?? .primary)
+                .opacity(visible ? 1 : 0)
+                .frame(width: 48, height: 48)
         }
+        .glassEffect(.clear.interactive(), in: .circle)
     }
 
     private var bottomToolbar: some View {
@@ -332,4 +373,48 @@ struct ShareSheet: UIViewControllerRepresentable {
 
 extension URL: @retroactive Identifiable {
     public var id: String { absoluteString }
+}
+
+// MARK: - Previews
+
+#Preview("Ready") {
+    NavigationStack {
+        HomeView(appState: .preview())
+    }
+}
+
+#Preview("Recording") {
+    NavigationStack {
+        HomeView(appState: .preview(isRecording: true))
+    }
+}
+
+#Preview("Paused") {
+    NavigationStack {
+        HomeView(appState: .preview(isPaused: true))
+    }
+}
+
+#Preview("Transcribing") {
+    NavigationStack {
+        HomeView(appState: .preview(isTranscribing: true))
+    }
+}
+
+#Preview("Post-processing") {
+    NavigationStack {
+        HomeView(appState: .preview(isPostProcessing: true))
+    }
+}
+
+#Preview("Error") {
+    NavigationStack {
+        HomeView(appState: .preview(isError: true))
+    }
+}
+
+#Preview("Loading") {
+    NavigationStack {
+        HomeView(appState: .preview(isModelLoaded: false))
+    }
 }

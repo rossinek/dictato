@@ -42,6 +42,27 @@ class AppState: ObservableObject {
         cleanupOldRecordings()
     }
 
+    /// For SwiftUI previews only
+    static func preview(
+        isModelLoaded: Bool = true,
+        isRecording: Bool = false,
+        isPaused: Bool = false,
+        isTranscribing: Bool = false,
+        isPostProcessing: Bool = false,
+        isError: Bool = false
+    ) -> AppState {
+        let state = AppState()
+        state.isModelLoaded = isModelLoaded
+        state.isRecording = isRecording
+        state.isPaused = isPaused
+        state.isTranscribing = isTranscribing
+        state.isPostProcessing = isPostProcessing
+        state.isError = isError
+        state.modes = [TranscriptionMode.default, TranscriptionMode(id: UUID(), name: "Email", language: "en", prompt: "Fix grammar")]
+        state.transcriptionHistory = []
+        return state
+    }
+
     func selectMode(index: Int) {
         guard index >= 0, index < modes.count else { return }
         selectedModeIndex = index
