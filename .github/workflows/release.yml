@@ -1,0 +1,78 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Install certificate
+        env:
+          CERTIFICATE_P12: ${{ secrets.CERTIFICATE_P12 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain-db
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          echo "$CERTIFICATE_P12" | base64 --decode > $RUNNER_TEMP/certificate.p12
+          security import $RUNNER_TEMP/certificate.p12 \
+            -P "$CERTIFICATE_PASSWORD" \
+            -A -t cert -f pkcs12 \
+            -k "$KEYCHAIN_PATH"
+
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH"
+
+      - name: Generate project
+        run: xcodegen generate
+
+      - name: Archive
+        run: |
+          xcodebuild -project Dictato.xcodeproj -scheme Dictato \
+            -configuration Release \
+            -destination 'platform=macOS' \
+            archive -archivePath ./build/Dictato.xcarchive
+
+      - name: Export
+        run: |
+          xcodebuild -exportArchive \
+            -archivePath ./build/Dictato.xcarchive \
+            -exportPath ./build/export \
+            -exportOptionsPlist ExportOptions.plist
+
+      - name: Notarize
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APP_PASSWORD: ${{ secrets.APP_PASSWORD }}
+        run: |
+          ditto -c -k --keepParent ./build/export/Dictato.app ./build/export/Dictato.zip
+
+          xcrun notarytool submit ./build/export/Dictato.zip \
+            --apple-id "$APPLE_ID" \
+            --team-id "H7B584W2D6" \
+            --password "$APP_PASSWORD" \
+            --wait
+
+          xcrun stapler staple ./build/export/Dictato.app
+
+          rm ./build/export/Dictato.zip
+          ditto -c -k --keepParent ./build/export/Dictato.app ./build/export/Dictato.zip
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ github.event.release.tag_name }}" \
+            ./build/export/Dictato.zip
