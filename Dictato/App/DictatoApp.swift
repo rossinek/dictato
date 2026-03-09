@@ -1,5 +1,6 @@
 import SwiftUI
 import KeyboardShortcuts
+import UniformTypeIdentifiers
 
 @main
 struct DictatoApp: App {
@@ -19,6 +20,15 @@ struct DictatoApp: App {
             }
             .keyboardShortcut("r")
             .disabled(!appState.isModelLoaded || appState.isTranscribing)
+
+            Menu("Transcribe File...") {
+                ForEach(appState.modes) { mode in
+                    Button(mode.name) {
+                        transcribeFileWithPicker(mode: mode)
+                    }
+                }
+            }
+            .disabled(!appState.isModelLoaded || appState.isRecording || appState.isTranscribing || appState.isFileTranscribing)
 
             Divider()
 
@@ -68,6 +78,24 @@ struct DictatoApp: App {
         Settings {
             SettingsView()
                 .toolbar(removing: .title)
+        }
+    }
+
+    private func transcribeFileWithPicker(mode: TranscriptionMode) {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.wav, .mp3, .mpeg4Audio, .aiff, .audio]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        appState.transcribeFile(url: url, mode: mode) { [openWindow] in
+            NSApp.activate(ignoringOtherApps: true)
+            openWindow(id: "history")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                if let window = NSApp.windows.first(where: { $0.title == "History" }) {
+                    window.orderFrontRegardless()
+                }
+            }
         }
     }
 

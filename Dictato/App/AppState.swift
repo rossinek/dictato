@@ -21,6 +21,7 @@ class AppState: ObservableObject {
     @Published var isPostProcessing = false
     @Published var isError = false
     @Published var reTranscribingID: UUID?
+    @Published var isFileTranscribing = false
 
     var selectedMode: TranscriptionMode {
         modes[min(selectedModeIndex, modes.count - 1)]
@@ -306,6 +307,108 @@ class AppState: ObservableObject {
 
             isTranscribing = false
             isPostProcessing = false
+        }
+    }
+
+    // MARK: - File Transcription
+
+    private func loadAudioFromFile(url: URL) -> [Float]? {
+        do {
+            let sourceFile = try AVAudioFile(forReading: url)
+            let sourceFormat = sourceFile.processingFormat
+            let targetFormat = AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1)!
+
+            let frameCount = AVAudioFrameCount(sourceFile.length)
+            guard let sourceBuffer = AVAudioPCMBuffer(pcmFormat: sourceFormat, frameCapacity: frameCount) else { return nil }
+            try sourceFile.read(into: sourceBuffer)
+
+            if sourceFormat.sampleRate == 16000 && sourceFormat.channelCount == 1 {
+                return Array(UnsafeBufferPointer(start: sourceBuffer.floatChannelData![0], count: Int(sourceBuffer.frameLength)))
+            }
+
+            guard let converter = AVAudioConverter(from: sourceFormat, to: targetFormat) else {
+                log.error("Cannot create audio converter")
+                return nil
+            }
+            let ratio = 16000.0 / sourceFormat.sampleRate
+            let targetFrameCount = AVAudioFrameCount(Double(frameCount) * ratio)
+            guard let targetBuffer = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: targetFrameCount) else { return nil }
+
+            var error: NSError?
+            converter.convert(to: targetBuffer, error: &error) { _, outStatus in
+                outStatus.pointee = .haveData
+                return sourceBuffer
+            }
+            if let error { log.error("Audio conversion failed: \(error)"); return nil }
+
+            return Array(UnsafeBufferPointer(start: targetBuffer.floatChannelData![0], count: Int(targetBuffer.frameLength)))
+        } catch {
+            log.error("Failed to load audio file: \(error)")
+            return nil
+        }
+    }
+
+    func transcribeFile(url: URL, mode: TranscriptionMode, completion: @escaping () -> Void) {
+        guard !isRecording, !isTranscribing, !isFileTranscribing, isModelLoaded else { return }
+        guard let samples = loadAudioFromFile(url: url) else {
+            log.error("Failed to load audio from file: \(url.path)")
+            return
+        }
+
+        isFileTranscribing = true
+        log.info("Transcribing file: \(url.lastPathComponent), \(samples.count) samples")
+
+        Task {
+            defer {
+                isFileTranscribing = false
+                completion()
+            }
+
+            do {
+                guard let whisperKit else { return }
+                let results = try await whisperKit.transcribe(
+                    audioArray: samples,
+                    decodeOptions: DecodingOptions(
+                        language: mode.language,
+                        wordTimestamps: false,
+                        chunkingStrategy: .none
+                    )
+                )
+
+                let text = results.map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .joined(separator: " ")
+
+                guard !text.isEmpty else {
+                    log.warning("File transcription returned empty text")
+                    return
+                }
+
+                var processedText: String?
+                let trimmedPrompt = mode.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+                if mode.provider != .none, let model = mode.model, !trimmedPrompt.isEmpty {
+                    do {
+                        processedText = try await LLMService.postProcess(
+                            provider: mode.provider,
+                            model: model,
+                            systemPrompt: trimmedPrompt,
+                            userMessage: text
+                        )
+                    } catch {
+                        log.error("File transcription post-processing failed: \(error)")
+                    }
+                }
+
+                let transcription = Transcription(
+                    text: text,
+                    postProcessedText: processedText,
+                    modeName: mode.name
+                )
+                transcriptionHistory.insert(transcription, at: 0)
+                saveHistory()
+                log.info("File transcription complete: \(text.prefix(50))...")
+            } catch {
+                log.error("File transcription failed: \(error)")
+            }
         }
     }
 
