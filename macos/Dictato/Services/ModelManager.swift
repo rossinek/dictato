@@ -186,18 +186,75 @@ class ModelManager: ObservableObject {
         }
     }
 
-    // MARK: - Load / Unload
+    // MARK: - Preload / Await / Transcribe / Unload
 
-    func transcribe(samples: [Float], engine: TranscriptionEngine, language: String?) async throws -> String {
+    private var preloadTask: Task<Void, Error>?
+    private var preloadingEngine: TranscriptionEngine?
+
+    /// Start loading a model in the background. Cancels any in-progress preload.
+    func preload(_ engine: TranscriptionEngine) {
+        // Already loaded — nothing to do
+        if loadedEngine == engine {
+            log.info("Preload: \(engine.displayName) already loaded, skipping")
+            return
+        }
+
+        // Cancel in-progress preload if it's for a different engine
+        if let current = preloadingEngine, current != engine {
+            log.info("Preload: cancelling in-progress load of \(current.displayName)")
+            preloadTask?.cancel()
+            preloadTask = nil
+            preloadingEngine = nil
+            // Unload the previous engine if it finished loading
+            if loadedEngine == current {
+                unload(current)
+            }
+        }
+
+        // Already preloading this engine — let it continue
+        if preloadingEngine == engine {
+            log.info("Preload: \(engine.displayName) already loading, continuing")
+            return
+        }
+
         guard isDownloaded(engine) else {
-            throw ModelError.notDownloaded(engine)
+            log.warning("Preload: \(engine.displayName) not downloaded, skipping")
+            return
         }
 
+        preloadingEngine = engine
         statuses[engine] = .loading
-        defer {
-            unload(engine)
-            statuses[engine] = .downloaded
+        log.info("Preload: starting load of \(engine.displayName)")
+
+        preloadTask = Task {
+            try await loadEngine(engine)
+            try Task.checkCancellation()
+            await MainActor.run {
+                self.loadedEngine = engine
+                self.preloadingEngine = nil
+                self.statuses[engine] = .downloaded
+                log.info("Preload: \(engine.displayName) loaded successfully")
+            }
         }
+    }
+
+    /// Wait for the current preload to finish. Call after recording stops.
+    func awaitLoad() async throws {
+        guard let task = preloadTask else {
+            // No preload in progress — check if already loaded
+            if loadedEngine != nil { return }
+            throw ModelError.noModelLoading
+        }
+        log.info("Awaiting model load...")
+        try await task.value
+    }
+
+    /// Transcribe with whatever engine is currently loaded.
+    func transcribeLoaded(samples: [Float], language: String?) async throws -> String {
+        guard let engine = loadedEngine else {
+            throw ModelError.noModelLoaded
+        }
+        log.info("Transcribing \(samples.count) samples with \(engine.displayName)")
 
         switch engine {
         case .whisperKit:
@@ -207,7 +264,35 @@ class ModelManager: ObservableObject {
         }
     }
 
-    private func transcribeWithWhisperKit(samples: [Float], language: String?) async throws -> String {
+    /// Unload the current engine, freeing RAM.
+    func unloadCurrent() {
+        guard let engine = loadedEngine else { return }
+        unload(engine)
+    }
+
+    /// Cancel any in-progress preload without unloading.
+    func cancelPreload() {
+        if let engine = preloadingEngine {
+            log.info("Cancelling preload of \(engine.displayName)")
+            preloadTask?.cancel()
+            preloadTask = nil
+            preloadingEngine = nil
+            statuses[engine] = .downloaded
+        }
+    }
+
+    // MARK: - Internal Load/Unload
+
+    private func loadEngine(_ engine: TranscriptionEngine) async throws {
+        switch engine {
+        case .whisperKit:
+            try await loadWhisperKit()
+        case .fluidAudio:
+            try await loadFluidAudio()
+        }
+    }
+
+    private func loadWhisperKit() async throws {
         let downloadBase = whisperKitDownloadBase
         let modelFolder = whisperModelFolder ?? findWhisperModelFolder()
 
@@ -231,7 +316,20 @@ class ModelManager: ObservableObject {
             )
         )
         whisperKit = kit
-        loadedEngine = .whisperKit
+    }
+
+    private func loadFluidAudio() async throws {
+        let directory = fluidAudioModelDirectory
+        let models = try await AsrModels.load(from: directory, version: .v3)
+        let manager = AsrManager(config: .default)
+        try await manager.initialize(models: models)
+        asrManager = manager
+    }
+
+    private func transcribeWithWhisperKit(samples: [Float], language: String?) async throws -> String {
+        guard let kit = whisperKit else {
+            throw ModelError.noModelLoaded
+        }
 
         let results = try await kit.transcribe(
             audioArray: samples,
@@ -247,12 +345,9 @@ class ModelManager: ObservableObject {
     }
 
     private func transcribeWithFluidAudio(samples: [Float]) async throws -> String {
-        let directory = fluidAudioModelDirectory
-        let models = try await AsrModels.load(from: directory, version: .v3)
-        let manager = AsrManager(config: .default)
-        try await manager.initialize(models: models)
-        asrManager = manager
-        loadedEngine = .fluidAudio
+        guard let manager = asrManager else {
+            throw ModelError.noModelLoaded
+        }
 
         let result = try await manager.transcribe(samples, source: .system)
         return result.text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -268,7 +363,7 @@ class ModelManager: ObservableObject {
         if loadedEngine == engine {
             loadedEngine = nil
         }
-        log.info("Unloaded model: \(engine.displayName)")
+        log.info("Unloaded: \(engine.displayName)")
     }
 
     // MARK: - Paths
@@ -326,6 +421,8 @@ class ModelManager: ObservableObject {
 enum ModelError: LocalizedError {
     case notDownloaded(TranscriptionEngine)
     case modelFilesNotFound(TranscriptionEngine)
+    case noModelLoaded
+    case noModelLoading
 
     var errorDescription: String? {
         switch self {
@@ -333,6 +430,10 @@ enum ModelError: LocalizedError {
             "\(engine.displayName) is not downloaded. Please download it from Settings."
         case .modelFilesNotFound(let engine):
             "\(engine.displayName) model files not found on disk."
+        case .noModelLoaded:
+            "No transcription model is loaded."
+        case .noModelLoading:
+            "No model is being loaded."
         }
     }
 }

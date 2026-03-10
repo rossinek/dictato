@@ -43,6 +43,11 @@ class AppState: ObservableObject {
         guard index >= 0, index < modes.count else { return }
         selectedModeIndex = index
         log.info("Selected mode: \(self.modes[index].name)")
+
+        // If recording, preload the new mode's engine (cancels previous preload)
+        if isRecording || isPaused {
+            modelManager.preload(modes[index].transcriptionEngine)
+        }
     }
 
     func requestPermissions() async {
@@ -131,6 +136,9 @@ class AppState: ObservableObject {
             audioEngine = engine
             isRecording = true
             log.info("Recording started")
+
+            // Start loading the model in the background while recording
+            modelManager.preload(selectedMode.transcriptionEngine)
         } catch {
             log.error("Failed to start recording: \(error)")
         }
@@ -182,6 +190,8 @@ class AppState: ObservableObject {
             engine.stop()
             audioEngine = nil
         }
+        modelManager.cancelPreload()
+        modelManager.unloadCurrent()
         audioSamples = []
         isPaused = false
         isRecording = false
@@ -241,13 +251,18 @@ class AppState: ObservableObject {
 
         transcriptionTask = Task {
             do {
+                // Wait for model to finish loading (started when recording began)
                 isModelLoading = true
-                let text = try await modelManager.transcribe(
+                try await modelManager.awaitLoad()
+                isModelLoading = false
+
+                let text = try await modelManager.transcribeLoaded(
                     samples: samples,
-                    engine: mode.transcriptionEngine,
                     language: mode.language
                 )
-                isModelLoading = false
+
+                // Unload model to free RAM
+                modelManager.unloadCurrent()
 
                 log.info("Transcription result: \(text)")
 
@@ -285,6 +300,7 @@ class AppState: ObservableObject {
                     PasteService.paste(text: processedText ?? text)
                     NSSound(named: "Funk")?.play()
                 } else {
+                    modelManager.unloadCurrent()
                     failedSamples = samples
                     isTranscribing = false
                     isError = true
@@ -293,6 +309,7 @@ class AppState: ObservableObject {
                 }
             } catch {
                 log.error("Transcription failed: \(error)")
+                modelManager.unloadCurrent()
                 failedSamples = samples
                 isTranscribing = false
                 isModelLoading = false
@@ -366,11 +383,13 @@ class AppState: ObservableObject {
             }
 
             do {
-                let text = try await modelManager.transcribe(
+                modelManager.preload(mode.transcriptionEngine)
+                try await modelManager.awaitLoad()
+                let text = try await modelManager.transcribeLoaded(
                     samples: samples,
-                    engine: mode.transcriptionEngine,
                     language: mode.language
                 )
+                modelManager.unloadCurrent()
 
                 guard !text.isEmpty else {
                     log.warning("File transcription returned empty text")
@@ -401,6 +420,7 @@ class AppState: ObservableObject {
                 saveHistory()
                 log.info("File transcription complete: \(text.prefix(50))...")
             } catch {
+                modelManager.unloadCurrent()
                 log.error("File transcription failed: \(error)")
             }
         }
@@ -497,11 +517,13 @@ class AppState: ObservableObject {
             }
 
             do {
-                let text = try await modelManager.transcribe(
+                modelManager.preload(mode.transcriptionEngine)
+                try await modelManager.awaitLoad()
+                let text = try await modelManager.transcribeLoaded(
                     samples: samples,
-                    engine: mode.transcriptionEngine,
                     language: mode.language
                 )
+                modelManager.unloadCurrent()
 
                 guard !text.isEmpty else { return }
 
@@ -526,6 +548,7 @@ class AppState: ObservableObject {
                 saveHistory()
                 log.info("Re-transcribed with mode: \(mode.name)")
             } catch {
+                modelManager.unloadCurrent()
                 log.error("Re-transcription failed: \(error)")
             }
         }
