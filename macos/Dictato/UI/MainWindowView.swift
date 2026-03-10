@@ -1,8 +1,8 @@
 import SwiftUI
 
-enum MainWindowTab: String, CaseIterable {
-    case history = "History"
-    case settings = "Settings"
+enum MainWindowTab: Int, CaseIterable {
+    case history = 0
+    case settings = 1
 }
 
 struct MainWindowView: View {
@@ -10,21 +10,12 @@ struct MainWindowView: View {
     @State private var selectedTab: MainWindowTab = AppState.shared.mainWindowTab
 
     var body: some View {
-        VStack(spacing: 0) {
-            Picker("", selection: $selectedTab) {
-                ForEach(MainWindowTab.allCases, id: \.self) { tab in
-                    Text(tab.rawValue).tag(tab)
-                }
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, 24)
-            .padding(.top, 16)
-            .padding(.bottom, 8)
-
-            switch selectedTab {
-            case .history:
+        TabView(selection: $selectedTab) {
+            Tab("History", systemImage: "clock", value: .history) {
                 HistoryView(appState: appState)
-            case .settings:
+            }
+
+            Tab("Settings", systemImage: "gear", value: .settings) {
                 SettingsView()
             }
         }
