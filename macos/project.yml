@@ -9,6 +9,9 @@ packages:
   WhisperKit:
     url: https://github.com/argmaxinc/WhisperKit.git
     from: "0.9.0"
+  FluidAudio:
+    url: https://github.com/FluidInference/FluidAudio.git
+    from: "0.12.2"
   KeyboardShortcuts:
     url: https://github.com/sindresorhus/KeyboardShortcuts.git
     from: "2.0.0"
@@ -33,4 +36,5 @@ targets:
         ENABLE_HARDENED_RUNTIME: YES
     dependencies:
       - package: WhisperKit
+      - package: FluidAudio
       - package: KeyboardShortcuts

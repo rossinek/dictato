@@ -2,7 +2,6 @@ import AVFoundation
 import Foundation
 import os
 import SwiftUI
-import WhisperKit
 
 private let log = Logger(subsystem: "com.dictato.app", category: "AppState")
 
@@ -13,8 +12,7 @@ class AppState: ObservableObject {
     @Published var isRecording = false
     @Published var isPaused = false
     @Published var isTranscribing = false
-    @Published var isModelLoaded = false
-    @Published var modelLoadingProgress: String = "Starting..."
+    @Published var isModelLoading = false
     @Published var transcriptionHistory: [Transcription] = []
     @Published var modes: [TranscriptionMode] = []
     @Published var selectedModeIndex: Int = 0
@@ -27,7 +25,9 @@ class AppState: ObservableObject {
         modes[min(selectedModeIndex, modes.count - 1)]
     }
 
-    private var whisperKit: WhisperKit?
+    let modelManager = ModelManager()
+
+    private var audioEngine: AVAudioEngine?
     private var audioSamples: [Float] = []
     private var failedSamples: [Float] = []
     private var transcriptionTask: Task<Void, Never>?
@@ -57,54 +57,9 @@ class AppState: ObservableObject {
         }
     }
 
-    func initializeWhisperKit() async {
-        log.info("Starting WhisperKit initialization")
-        do {
-            modelLoadingProgress = "Downloading model (0%)..."
-            log.info("Downloading model...")
-            let downloadBase = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-                .appendingPathComponent("Dictato/Models", isDirectory: true)
-            setenv("HF_HOME", downloadBase.path, 1)
-            try FileManager.default.createDirectory(at: downloadBase, withIntermediateDirectories: true)
-            log.info("Model download base: \(downloadBase.path())")
-
-            let modelFolder = try await WhisperKit.download(
-                variant: "openai_whisper-large-v3_turbo",
-                downloadBase: downloadBase,
-                progressCallback: { [weak self] progress in
-                    let pct = Int(progress.fractionCompleted * 100)
-                    Task { @MainActor [weak self] in
-                        self?.modelLoadingProgress = "Downloading model (\(pct)%)..."
-                    }
-                }
-            )
-            log.info("Model downloaded to \(modelFolder.path)")
-
-            modelLoadingProgress = "Compiling model (first launch is slow)..."
-            log.info("Loading model into memory...")
-            let kit = try await WhisperKit(
-                WhisperKitConfig(
-                    downloadBase: downloadBase,
-                    modelFolder: modelFolder.path,
-                    tokenizerFolder: downloadBase,
-                    computeOptions: ModelComputeOptions(
-                        audioEncoderCompute: .cpuAndNeuralEngine,
-                        textDecoderCompute: .cpuAndNeuralEngine
-                    ),
-                    verbose: true,
-                    logLevel: .info,
-                    prewarm: true,
-                    download: false
-                )
-            )
-            whisperKit = kit
-            isModelLoaded = true
-            modelLoadingProgress = "Ready"
-            log.info("Model loaded successfully")
-        } catch {
-            modelLoadingProgress = "Model failed: \(error.localizedDescription)"
-            log.error("WhisperKit init failed: \(error)")
-        }
+    /// Whether the current mode's transcription engine is downloaded and ready
+    var isEngineAvailable: Bool {
+        modelManager.isDownloaded(selectedMode.transcriptionEngine)
     }
 
     func toggleRecording() {
@@ -120,19 +75,60 @@ class AppState: ObservableObject {
         }
     }
 
+    // MARK: - Recording (AVAudioEngine)
+
     private func startRecording() {
-        guard let whisperKit, isModelLoaded, !isTranscribing else {
-            log.warning("Cannot start recording: model=\(self.isModelLoaded), transcribing=\(self.isTranscribing)")
+        guard !isTranscribing else {
+            log.warning("Cannot start recording: transcribing=\(self.isTranscribing)")
             return
         }
 
         do {
             audioSamples = []
-            try whisperKit.audioProcessor.startRecordingLive { [weak self] samples in
+            let engine = AVAudioEngine()
+            let inputNode = engine.inputNode
+            let recordingFormat = inputNode.outputFormat(forBus: 0)
+
+            let targetFormat = AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1)!
+
+            let converter: AVAudioConverter?
+            if recordingFormat.sampleRate != 16000 || recordingFormat.channelCount != 1 {
+                converter = AVAudioConverter(from: recordingFormat, to: targetFormat)
+            } else {
+                converter = nil
+            }
+
+            inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] buffer, _ in
+                let samples: [Float]
+                if let converter {
+                    let ratio = 16000.0 / recordingFormat.sampleRate
+                    let targetFrameCount = AVAudioFrameCount(Double(buffer.frameLength) * ratio)
+                    guard let targetBuffer = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: targetFrameCount) else { return }
+
+                    var error: NSError?
+                    var consumed = false
+                    converter.convert(to: targetBuffer, error: &error) { _, outStatus in
+                        if consumed {
+                            outStatus.pointee = .noDataNow
+                            return nil
+                        }
+                        consumed = true
+                        outStatus.pointee = .haveData
+                        return buffer
+                    }
+                    if error != nil { return }
+                    samples = Array(UnsafeBufferPointer(start: targetBuffer.floatChannelData![0], count: Int(targetBuffer.frameLength)))
+                } else {
+                    samples = Array(UnsafeBufferPointer(start: buffer.floatChannelData![0], count: Int(buffer.frameLength)))
+                }
+
                 DispatchQueue.main.async {
                     self?.audioSamples.append(contentsOf: samples)
                 }
             }
+
+            try engine.start()
+            audioEngine = engine
             isRecording = true
             log.info("Recording started")
         } catch {
@@ -150,21 +146,17 @@ class AppState: ObservableObject {
     }
 
     private func pauseRecording() {
-        guard let whisperKit, isRecording else { return }
-        whisperKit.audioProcessor.pauseRecording()
+        guard audioEngine != nil, isRecording else { return }
+        audioEngine?.pause()
         isRecording = false
         isPaused = true
         log.info("Recording paused")
     }
 
     private func resumeRecording() {
-        guard let whisperKit, isPaused else { return }
+        guard let engine = audioEngine, isPaused else { return }
         do {
-            try whisperKit.audioProcessor.resumeRecordingLive { [weak self] samples in
-                DispatchQueue.main.async {
-                    self?.audioSamples.append(contentsOf: samples)
-                }
-            }
+            try engine.start()
             isPaused = false
             isRecording = true
             log.info("Recording resumed")
@@ -178,13 +170,18 @@ class AppState: ObservableObject {
         transcriptionTask?.cancel()
         transcriptionTask = nil
         isTranscribing = false
+        isModelLoading = false
         isPostProcessing = false
         log.info("Transcription cancelled")
     }
 
     func discardRecording() {
-        guard let whisperKit, isPaused else { return }
-        whisperKit.audioProcessor.stopRecording()
+        guard isPaused || isRecording else { return }
+        if let engine = audioEngine {
+            engine.inputNode.removeTap(onBus: 0)
+            engine.stop()
+            audioEngine = nil
+        }
         audioSamples = []
         isPaused = false
         isRecording = false
@@ -228,30 +225,29 @@ class AppState: ObservableObject {
     }
 
     private func stopAndTranscribe() {
-        guard let whisperKit else { return }
+        guard let engine = audioEngine else { return }
 
-        whisperKit.audioProcessor.stopRecording()
+        engine.inputNode.removeTap(onBus: 0)
+        engine.stop()
+        audioEngine = nil
         isRecording = false
+        isPaused = false
         isTranscribing = true
 
         let samples = audioSamples
         let mode = selectedMode
         audioSamples = []
-        log.info("Transcribing \(samples.count) samples, language: \(mode.language ?? "auto")")
+        log.info("Transcribing \(samples.count) samples, engine: \(mode.transcriptionEngine.displayName), language: \(mode.language ?? "auto")")
 
         transcriptionTask = Task {
             do {
-                let results = try await whisperKit.transcribe(
-                    audioArray: samples,
-                    decodeOptions: DecodingOptions(
-                        language: mode.language,
-                        wordTimestamps: false,
-                        chunkingStrategy: .none
-                    )
+                isModelLoading = true
+                let text = try await modelManager.transcribe(
+                    samples: samples,
+                    engine: mode.transcriptionEngine,
+                    language: mode.language
                 )
-
-                let text = results.map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) }
-                    .joined(separator: " ")
+                isModelLoading = false
 
                 log.info("Transcription result: \(text)")
 
@@ -299,6 +295,7 @@ class AppState: ObservableObject {
                 log.error("Transcription failed: \(error)")
                 failedSamples = samples
                 isTranscribing = false
+                isModelLoading = false
                 isPostProcessing = false
                 isError = true
                 NSSound(named: "Sosumi")?.play()
@@ -349,7 +346,11 @@ class AppState: ObservableObject {
     }
 
     func transcribeFile(url: URL, mode: TranscriptionMode, completion: @escaping () -> Void) {
-        guard !isRecording, !isTranscribing, !isFileTranscribing, isModelLoaded else { return }
+        guard !isRecording, !isTranscribing, !isFileTranscribing else { return }
+        guard modelManager.isDownloaded(mode.transcriptionEngine) else {
+            log.error("Engine not downloaded: \(mode.transcriptionEngine.displayName)")
+            return
+        }
         guard let samples = loadAudioFromFile(url: url) else {
             log.error("Failed to load audio from file: \(url.path)")
             return
@@ -365,18 +366,11 @@ class AppState: ObservableObject {
             }
 
             do {
-                guard let whisperKit else { return }
-                let results = try await whisperKit.transcribe(
-                    audioArray: samples,
-                    decodeOptions: DecodingOptions(
-                        language: mode.language,
-                        wordTimestamps: false,
-                        chunkingStrategy: .none
-                    )
+                let text = try await modelManager.transcribe(
+                    samples: samples,
+                    engine: mode.transcriptionEngine,
+                    language: mode.language
                 )
-
-                let text = results.map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) }
-                    .joined(separator: " ")
 
                 guard !text.isEmpty else {
                     log.warning("File transcription returned empty text")
@@ -469,7 +463,6 @@ class AppState: ObservableObject {
 
     private func cleanupOldRecordings() {
         let maxCached = 5
-        // Find indices that have audio files, newest first (history is already newest-first)
         let indicesWithAudio = transcriptionHistory.indices.filter { transcriptionHistory[$0].audioFileName != nil }
 
         guard indicesWithAudio.count > maxCached else { return }
@@ -488,6 +481,10 @@ class AppState: ObservableObject {
 
     func reTranscribe(transcriptionID: UUID, withMode mode: TranscriptionMode) {
         guard !isRecording, !isTranscribing, !isPaused else { return }
+        guard modelManager.isDownloaded(mode.transcriptionEngine) else {
+            log.error("Engine not downloaded for re-transcription: \(mode.transcriptionEngine.displayName)")
+            return
+        }
         guard let index = transcriptionHistory.firstIndex(where: { $0.id == transcriptionID }),
               let audioFileName = transcriptionHistory[index].audioFileName,
               let samples = loadAudioSamples(fileName: audioFileName) else { return }
@@ -500,18 +497,11 @@ class AppState: ObservableObject {
             }
 
             do {
-                guard let whisperKit else { return }
-                let results = try await whisperKit.transcribe(
-                    audioArray: samples,
-                    decodeOptions: DecodingOptions(
-                        language: mode.language,
-                        wordTimestamps: false,
-                        chunkingStrategy: .none
-                    )
+                let text = try await modelManager.transcribe(
+                    samples: samples,
+                    engine: mode.transcriptionEngine,
+                    language: mode.language
                 )
-
-                let text = results.map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) }
-                    .joined(separator: " ")
 
                 guard !text.isEmpty else { return }
 

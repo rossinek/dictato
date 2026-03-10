@@ -3,6 +3,7 @@ import KeyboardShortcuts
 
 struct SettingsView: View {
     @ObservedObject private var appState = AppState.shared
+    @ObservedObject private var modelManager = AppState.shared.modelManager
     @AppStorage("openai_api_key") private var openAIKey = ""
     @AppStorage("groq_api_key") private var groqKey = ""
 
@@ -36,6 +37,19 @@ struct SettingsView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 4)
 
+                // Transcription Models
+                SectionCard("Transcription Models") {
+                    VStack(spacing: 12) {
+                        ForEach(TranscriptionEngine.allCases) { engine in
+                            ModelRow(engine: engine, modelManager: modelManager)
+
+                            if engine != TranscriptionEngine.allCases.last {
+                                Divider()
+                            }
+                        }
+                    }
+                }
+
                 // Keyboard Shortcut
                 SectionCard("Keyboard Shortcut") {
                     KeyboardShortcuts.Recorder("Toggle Recording:", name: .toggleRecording)
@@ -66,6 +80,7 @@ struct SettingsView: View {
                                         }
                                     }
                                 ),
+                                modelManager: modelManager,
                                 canDelete: appState.modes.count > 1,
                                 onDelete: {
                                     if let idx = appState.modes.firstIndex(where: { $0.id == modeID }) {
@@ -102,9 +117,128 @@ struct SettingsView: View {
             }
             .padding(24)
         }
-        .frame(width: 550, height: 650)
+        .frame(width: 550, height: 700)
     }
 }
+
+// MARK: - Model Row
+
+private struct ModelRow: View {
+    let engine: TranscriptionEngine
+    @ObservedObject var modelManager: ModelManager
+    @State private var showDeleteConfirmation = false
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(engine.displayName)
+                    .font(.body.bold())
+                Text(engine.description)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            statusView
+        }
+    }
+
+    @ViewBuilder
+    private var statusView: some View {
+        let status = modelManager.status(for: engine)
+
+        switch status {
+        case .notDownloaded:
+            Button("Download") {
+                Task {
+                    await modelManager.download(engine)
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+
+        case .downloading(let progress):
+            HStack(spacing: 8) {
+                if let progress {
+                    ProgressView(value: progress)
+                        .frame(width: 80)
+                    Text("\(Int(progress * 100))%")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                } else {
+                    ProgressView()
+                        .scaleEffect(0.6)
+                    Text("Downloading...")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+        case .compiling:
+            HStack(spacing: 8) {
+                ProgressView()
+                    .scaleEffect(0.6)
+                Text("Compiling model (first time, may take a few minutes)...")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+        case .downloaded:
+            HStack(spacing: 8) {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                Text("Downloaded")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Button(role: .destructive) {
+                    showDeleteConfirmation = true
+                } label: {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(.borderless)
+                .confirmationDialog("Delete \(engine.displayName)?", isPresented: $showDeleteConfirmation) {
+                    Button("Delete", role: .destructive) {
+                        modelManager.delete(engine)
+                    }
+                } message: {
+                    Text("This will remove the downloaded model files. You can re-download later.")
+                }
+            }
+
+        case .loading:
+            HStack(spacing: 8) {
+                ProgressView()
+                    .scaleEffect(0.6)
+                Text("Loading...")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+        case .error(let message):
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.red)
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .lineLimit(2)
+
+                Button("Retry") {
+                    Task {
+                        await modelManager.download(engine)
+                    }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+        }
+    }
+}
+
+// MARK: - Section Card
 
 private struct SectionCard<Content: View>: View {
     let title: String
@@ -129,8 +263,11 @@ private struct SectionCard<Content: View>: View {
     }
 }
 
+// MARK: - Mode Row
+
 private struct ModeRow: View {
     @Binding var mode: TranscriptionMode
+    @ObservedObject var modelManager: ModelManager
     let canDelete: Bool
     let onDelete: () -> Void
 
@@ -139,6 +276,10 @@ private struct ModeRow: View {
     @State private var modelLoadError: String?
     @State private var modelSearch = ""
     @FocusState private var isSearchFocused: Bool
+
+    private var downloadedEngines: [TranscriptionEngine] {
+        TranscriptionEngine.allCases.filter { modelManager.isDownloaded($0) }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -160,6 +301,23 @@ private struct ModeRow: View {
                         Image(systemName: "trash")
                     }
                     .buttonStyle(.borderless)
+                }
+            }
+
+            // Transcription engine picker
+            if downloadedEngines.isEmpty {
+                HStack(spacing: 4) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .foregroundStyle(.orange)
+                    Text("No models downloaded. Download a model above to start transcribing.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                Picker("Transcription Model", selection: $mode.transcriptionEngine) {
+                    ForEach(downloadedEngines) { engine in
+                        Text(engine.displayName).tag(engine)
+                    }
                 }
             }
 
@@ -256,13 +414,6 @@ private struct ModeRow: View {
         Binding(
             get: { mode.language },
             set: { mode.language = $0 }
-        )
-    }
-
-    private var modelBinding: Binding<String?> {
-        Binding(
-            get: { mode.model },
-            set: { mode.model = $0 }
         )
     }
 

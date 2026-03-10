@@ -7,23 +7,25 @@ struct TranscriptionMode: Identifiable, Codable {
     var prompt: String
     var provider: LLMProvider
     var model: String?
+    var transcriptionEngine: TranscriptionEngine
 
     static let `default` = TranscriptionMode(
         id: UUID(), name: "Default", language: nil, prompt: "",
-        provider: .none, model: nil
+        provider: .none, model: nil, transcriptionEngine: .whisperKit
     )
 
     enum CodingKeys: String, CodingKey {
-        case id, name, language, prompt, provider, model
+        case id, name, language, prompt, provider, model, transcriptionEngine
     }
 
-    init(id: UUID, name: String, language: String?, prompt: String, provider: LLMProvider = .none, model: String? = nil) {
+    init(id: UUID, name: String, language: String?, prompt: String, provider: LLMProvider = .none, model: String? = nil, transcriptionEngine: TranscriptionEngine = .whisperKit) {
         self.id = id
         self.name = name
         self.language = language
         self.prompt = prompt
         self.provider = provider
         self.model = model
+        self.transcriptionEngine = transcriptionEngine
     }
 
     init(from decoder: Decoder) throws {
@@ -34,5 +36,6 @@ struct TranscriptionMode: Identifiable, Codable {
         prompt = try container.decode(String.self, forKey: .prompt)
         provider = try container.decodeIfPresent(LLMProvider.self, forKey: .provider) ?? .none
         model = try container.decodeIfPresent(String.self, forKey: .model)
+        transcriptionEngine = try container.decodeIfPresent(TranscriptionEngine.self, forKey: .transcriptionEngine) ?? .whisperKit
     }
 }

@@ -10,8 +10,9 @@ struct DictatoApp: App {
 
     var body: some Scene {
         MenuBarExtra("Dictato", image: menuBarIcon) {
-            if !appState.isModelLoaded {
-                Text(appState.modelLoadingProgress)
+            if !appState.isEngineAvailable {
+                Text("No model downloaded for current mode")
+                    .foregroundStyle(.secondary)
                 Divider()
             }
 
@@ -19,16 +20,17 @@ struct DictatoApp: App {
                 appState.toggleRecording()
             }
             .keyboardShortcut("r")
-            .disabled(!appState.isModelLoaded || appState.isTranscribing)
+            .disabled(!appState.isEngineAvailable || appState.isTranscribing)
 
             Menu("Transcribe File...") {
                 ForEach(appState.modes) { mode in
                     Button(mode.name) {
                         transcribeFileWithPicker(mode: mode)
                     }
+                    .disabled(!appState.modelManager.isDownloaded(mode.transcriptionEngine))
                 }
             }
-            .disabled(!appState.isModelLoaded || appState.isRecording || appState.isTranscribing || appState.isFileTranscribing)
+            .disabled(appState.isRecording || appState.isTranscribing || appState.isFileTranscribing)
 
             Divider()
 
@@ -100,7 +102,7 @@ struct DictatoApp: App {
     }
 
     private var menuBarIcon: String {
-        if !appState.isModelLoaded {
+        if !appState.isEngineAvailable {
             return "MenuBarIconOutline"
         }
         return "MenuBarIcon"
@@ -122,7 +124,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         Task { @MainActor in
             await appState.requestPermissions()
-            await appState.initializeWhisperKit()
+
+            // Auto-open Settings if no models are downloaded
+            if !appState.modelManager.hasAnyModelDownloaded {
+                NSApp.activate(ignoringOtherApps: true)
+                // Open settings via NSApp standard mechanism
+                if #available(macOS 14.0, *) {
+                    NSApp.activate()
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                        for window in NSApp.windows where window.title == "Settings" || window.className.contains("Settings") {
+                            window.orderFrontRegardless()
+                        }
+                    }
+                }
+            }
         }
 
         KeyboardShortcuts.onKeyDown(for: .toggleRecording) {
@@ -139,6 +157,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             var previousPostProcessing = false
             var previousError = false
             var previousModeIndex = 0
+            var previousModelLoading = false
 
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(100))
@@ -150,10 +169,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 let postProcessing = appState.isPostProcessing
                 let error = appState.isError
                 let modeIndex = appState.selectedModeIndex
+                let modelLoading = appState.isModelLoading
 
-                if recording != previousRecording || paused != previousPaused || transcribing != previousTranscribing || postProcessing != previousPostProcessing || error != previousError || modeIndex != previousModeIndex {
-                    if recording || paused || transcribing || postProcessing || error {
-                        showPanel(recording: recording, isPaused: paused, transcribing: transcribing, postProcessing: postProcessing, isError: error)
+                if recording != previousRecording || paused != previousPaused || transcribing != previousTranscribing || postProcessing != previousPostProcessing || error != previousError || modeIndex != previousModeIndex || modelLoading != previousModelLoading {
+                    if recording || paused || transcribing || postProcessing || error || modelLoading {
+                        showPanel(recording: recording, isPaused: paused, transcribing: transcribing, postProcessing: postProcessing, isError: error, isModelLoading: modelLoading)
                     } else {
                         hidePanel()
                     }
@@ -163,13 +183,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     previousPostProcessing = postProcessing
                     previousError = error
                     previousModeIndex = modeIndex
+                    previousModelLoading = modelLoading
                 }
             }
         }
     }
 
     @MainActor
-    private func showPanel(recording: Bool, isPaused: Bool, transcribing: Bool, postProcessing: Bool = false, isError: Bool = false) {
+    private func showPanel(recording: Bool, isPaused: Bool, transcribing: Bool, postProcessing: Bool = false, isError: Bool = false, isModelLoading: Bool = false) {
         let appState = AppState.shared
         let overlay = RecordingOverlay(
             isRecording: recording,
