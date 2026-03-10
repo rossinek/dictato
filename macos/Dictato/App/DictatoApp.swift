@@ -170,9 +170,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 let modeIndex = appState.selectedModeIndex
                 let modelLoading = appState.isModelLoading
 
-                if recording != previousRecording || paused != previousPaused || transcribing != previousTranscribing || postProcessing != previousPostProcessing || error != previousError || modeIndex != previousModeIndex || modelLoading != previousModelLoading {
+                let stateChanged = recording != previousRecording || paused != previousPaused || transcribing != previousTranscribing || postProcessing != previousPostProcessing || error != previousError || modelLoading != previousModelLoading
+                let modeChanged = modeIndex != previousModeIndex
+
+                if stateChanged || modeChanged {
                     if recording || paused || transcribing || postProcessing || error || modelLoading {
-                        showPanel(recording: recording, isPaused: paused, transcribing: transcribing, postProcessing: postProcessing, isError: error, isModelLoading: modelLoading)
+                        // Only rebuild panel on state changes; mode changes are handled reactively by SwiftUI
+                        if stateChanged {
+                            showPanel(recording: recording, isPaused: paused, transcribing: transcribing, postProcessing: postProcessing, isError: error, isModelLoading: modelLoading)
+                        }
                     } else {
                         hidePanel()
                     }
@@ -190,15 +196,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @MainActor
     private func showPanel(recording: Bool, isPaused: Bool, transcribing: Bool, postProcessing: Bool = false, isError: Bool = false, isModelLoading: Bool = false) {
-        let appState = AppState.shared
         let overlay = RecordingOverlay(
             isRecording: recording,
             isPaused: isPaused,
             isTranscribing: transcribing,
             isPostProcessing: postProcessing,
-            isError: isError,
-            modes: appState.modes,
-            selectedModeIndex: appState.selectedModeIndex
+            isError: isError
         )
         // Measure pill-only size (overlay with single mode hides mode pills)
         let pillOnly = RecordingOverlay(
@@ -206,9 +209,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             isPaused: isPaused,
             isTranscribing: transcribing,
             isPostProcessing: postProcessing,
-            isError: isError,
-            modes: [appState.modes.first ?? .default],
-            selectedModeIndex: 0
+            isError: isError
         )
         let pillMeasure = NSHostingView(rootView: pillOnly)
         let measuredPillSize = pillMeasure.fittingSize

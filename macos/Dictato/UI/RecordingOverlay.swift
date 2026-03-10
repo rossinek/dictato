@@ -12,8 +12,7 @@ struct RecordingOverlay: View {
     let isTranscribing: Bool
     let isPostProcessing: Bool
     let isError: Bool
-    let modes: [TranscriptionMode]
-    let selectedModeIndex: Int
+    @ObservedObject private var appState = AppState.shared
     @State private var pulse = false
 
     var body: some View {
@@ -21,15 +20,22 @@ struct RecordingOverlay: View {
 
             // Main pill
             VStack(spacing: 6) {
-                HStack(spacing: 8) {
-                    Circle()
-                        .fill(dotColor)
-                        .frame(width: 12, height: 12)
-                        .scaleEffect(isPaused || isError ? 1.0 : (pulse ? 1.3 : 1.0))
-                        .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: pulse)
+                if isRecording {
+                    AudioVisualizerView(levels: appState.audioLevels)
+                        .frame(minWidth: 180)
+                        .frame(height: 19)
+                } else {
+                    HStack(spacing: 8) {
+                        Circle()
+                            .fill(dotColor)
+                            .frame(width: 12, height: 12)
+                            .scaleEffect(isPaused || isError ? 1.0 : (pulse ? 1.3 : 1.0))
+                            .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: pulse)
 
-                    Text(statusText)
-                        .font(.system(size: 16, weight: .semibold))
+                        Text(statusText)
+                            .font(.system(size: 16, weight: .semibold))
+                    }
+                    .frame(height: 19)
                 }
 
                 HStack(spacing: 16) {
@@ -61,11 +67,11 @@ struct RecordingOverlay: View {
             .glassEffect(.clear, in: .capsule)
 
             // Mode pills — separate row below, centered
-            if modes.count > 1 && !isTranscribing && !isPostProcessing && !isError {
+            if appState.modes.count > 1 && !isTranscribing && !isPostProcessing && !isError {
               GlassEffectContainer(spacing: 7) {
                 HStack(spacing: 0) {
-                  ForEach(Array(modes.enumerated()), id: \.element.id) { index, mode in
-                    let isSelected = index == selectedModeIndex
+                  ForEach(Array(appState.modes.enumerated()), id: \.element.id) { index, mode in
+                    let isSelected = index == appState.selectedModeIndex
                     HStack(spacing: 5) {
                       Text("\(index + 1)")
                         .font(.system(size: 10, weight: .medium, design: .rounded))
@@ -148,22 +154,98 @@ struct RecordingOverlay: View {
     }
 }
 
+// MARK: - Audio Visualizer
+
+private struct AudioVisualizerView: View {
+    let levels: [Float]
+    private let barSpacing: CGFloat = 2
+    private let barWidth: CGFloat = 2.5
+    private let minBarHeight: CGFloat = 2
+    private let referenceLevel: Float = 0.12
+    private let smoothing: Float = 0.15 // per-frame lerp factor (60fps)
+
+    @State private var displayedLevels: [Float] = []
+    @State private var targetLevels: [Float] = []
+
+    var body: some View {
+        GeometryReader { geo in
+            let barCount = max(1, Int(geo.size.width / (barWidth + barSpacing)))
+            let maxHeight = geo.size.height
+
+            TimelineView(.animation) { _ in
+                let current = stepAndGet(barCount: barCount)
+
+                HStack(spacing: barSpacing) {
+                    ForEach(0..<current.count, id: \.self) { i in
+                        let level = current[i]
+                        let barHeight = max(minBarHeight, CGFloat(level) * maxHeight)
+
+                        RoundedRectangle(cornerRadius: barWidth / 2)
+                            .fill(.white.opacity(0.3 + Double(level) * 0.7))
+                            .frame(width: barWidth, height: barHeight)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .onChange(of: levels) {
+            targetLevels = normalizedLevels()
+        }
+    }
+
+    /// Called every frame by TimelineView — smoothly interpolates displayed toward target
+    private func stepAndGet(barCount: Int) -> [Float] {
+        let target = targetLevels.isEmpty ? normalizedLevels() : targetLevels
+
+        var current = displayedLevels
+        // Resize
+        while current.count < target.count { current.append(0) }
+        if current.count > target.count { current = Array(current.prefix(target.count)) }
+
+        // Per-bar lerp toward target
+        for i in 0..<target.count {
+            current[i] += (target[i] - current[i]) * smoothing
+        }
+
+        // Write back (triggers next frame diff)
+        DispatchQueue.main.async {
+            displayedLevels = current
+        }
+
+        // Trim to bar count
+        if current.count > barCount {
+            return Array(current.suffix(barCount))
+        }
+        return current
+    }
+
+    private func normalizedLevels() -> [Float] {
+        let sourceCount = 48
+        var source: [Float]
+        if levels.count < sourceCount {
+            source = Array(repeating: Float(0), count: sourceCount - levels.count) + levels
+        } else {
+            source = Array(levels.suffix(sourceCount))
+        }
+
+        let peak = max(source.max() ?? 0, referenceLevel)
+        return source.map { level in
+            let normalized = min(level / peak, 1.0)
+            return pow(normalized, 0.7)
+        }
+    }
+}
+
 #Preview("Recording") {
-    let modes = [
-        TranscriptionMode(id: UUID(), name: "Default", language: nil, prompt: ""),
-        TranscriptionMode(id: UUID(), name: "Email", language: "en", prompt: "Format as email"),
-    ]
     VStack(spacing: 0) {
         RecordingOverlay(
-            isRecording: true, isPaused: false, isTranscribing: false, isPostProcessing: false, isError: false,
-            modes: modes, selectedModeIndex: 0
+            isRecording: true, isPaused: false, isTranscribing: false, isPostProcessing: false, isError: false
         )
         .frame(width: 400, height: 200)
         .background(.black)
 
         RecordingOverlay(
-            isRecording: true, isPaused: false, isTranscribing: false, isPostProcessing: false, isError: false,
-            modes: modes, selectedModeIndex: 0
+            isRecording: true, isPaused: false, isTranscribing: false, isPostProcessing: false, isError: false
         )
         .frame(width: 400, height: 200)
         .background(.white)
@@ -171,18 +253,15 @@ struct RecordingOverlay: View {
 }
 
 #Preview("Paused") {
-    let mode = [TranscriptionMode(id: UUID(), name: "Default", language: nil, prompt: "")]
     HStack(spacing: 0) {
         RecordingOverlay(
-            isRecording: false, isPaused: true, isTranscribing: false, isPostProcessing: false, isError: false,
-            modes: mode, selectedModeIndex: 0
+            isRecording: false, isPaused: true, isTranscribing: false, isPostProcessing: false, isError: false
         )
         .frame(width: 400, height: 200)
         .background(.black)
 
         RecordingOverlay(
-            isRecording: false, isPaused: true, isTranscribing: false, isPostProcessing: false, isError: false,
-            modes: mode, selectedModeIndex: 0
+            isRecording: false, isPaused: true, isTranscribing: false, isPostProcessing: false, isError: false
         )
         .frame(width: 400, height: 200)
         .background(.white)
@@ -190,18 +269,15 @@ struct RecordingOverlay: View {
 }
 
 #Preview("Transcribing") {
-    let mode = [TranscriptionMode(id: UUID(), name: "Default", language: nil, prompt: "")]
     HStack(spacing: 0) {
         RecordingOverlay(
-            isRecording: false, isPaused: false, isTranscribing: true, isPostProcessing: false, isError: false,
-            modes: mode, selectedModeIndex: 0
+            isRecording: false, isPaused: false, isTranscribing: true, isPostProcessing: false, isError: false
         )
         .frame(width: 400, height: 200)
         .background(.black)
 
         RecordingOverlay(
-            isRecording: false, isPaused: false, isTranscribing: true, isPostProcessing: false, isError: false,
-            modes: mode, selectedModeIndex: 0
+            isRecording: false, isPaused: false, isTranscribing: true, isPostProcessing: false, isError: false
         )
         .frame(width: 400, height: 200)
         .background(.white)
