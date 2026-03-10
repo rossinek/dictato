@@ -20,6 +20,7 @@ class AppState: ObservableObject {
     @Published var isError = false
     @Published var reTranscribingID: UUID?
     @Published var isFileTranscribing = false
+    @Published var mainWindowTab: MainWindowTab = .history
 
     var selectedMode: TranscriptionMode {
         modes[min(selectedModeIndex, modes.count - 1)]

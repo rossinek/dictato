@@ -6,11 +6,6 @@ struct HistoryView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
-                Text("History")
-                    .font(.title2.bold())
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 4)
-
                 if appState.transcriptionHistory.isEmpty {
                     Text("No transcriptions yet")
                         .foregroundStyle(.secondary)

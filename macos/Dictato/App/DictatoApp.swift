@@ -2,6 +2,10 @@ import SwiftUI
 import KeyboardShortcuts
 import UniformTypeIdentifiers
 
+extension Notification.Name {
+    static let openMainWindow = Notification.Name("openMainWindow")
+}
+
 @main
 struct DictatoApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
@@ -35,33 +39,14 @@ struct DictatoApp: App {
             Divider()
 
             Button("History") {
-                let mouseScreen = NSScreen.screens.first(where: { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) }) ?? NSScreen.main
-                NSApp.activate(ignoringOtherApps: true)
-                openWindow(id: "history")
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    if let window = NSApp.windows.first(where: { $0.title == "History" }) {
-                        if let screen = mouseScreen {
-                            let x = screen.visibleFrame.midX - window.frame.width / 2
-                            let y = screen.visibleFrame.midY - window.frame.height / 2
-                            window.setFrameOrigin(NSPoint(x: x, y: y))
-                        }
-                        window.orderFrontRegardless()
-                    }
-                }
+                appState.mainWindowTab = .history
+                openMainWindow()
             }
 
-            SettingsLink {
-                Text("Settings...")
+            Button("Settings...") {
+                appState.mainWindowTab = .settings
+                openMainWindow()
             }
-            .onAppear {}  // Force SwiftUI to register the settings scene
-            .simultaneousGesture(TapGesture().onEnded {
-                NSApp.activate(ignoringOtherApps: true)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                    for window in NSApp.windows where window.title == "Settings" || window.className.contains("Settings") {
-                        window.orderFrontRegardless()
-                    }
-                }
-            })
 
             Divider()
 
@@ -71,16 +56,14 @@ struct DictatoApp: App {
             .keyboardShortcut("q")
         }
 
-        Window("History", id: "history") {
-            HistoryView(appState: appState)
+        Window("Dictato", id: "main") {
+            MainWindowView()
                 .toolbar(removing: .title)
+                .onReceive(NotificationCenter.default.publisher(for: .openMainWindow)) { _ in
+                    openMainWindow()
+                }
         }
-        .defaultSize(width: 620, height: 450)
-
-        Settings {
-            SettingsView()
-                .toolbar(removing: .title)
-        }
+        .defaultSize(width: 620, height: 550)
     }
 
     private func transcribeFileWithPicker(mode: TranscriptionMode) {
@@ -91,14 +74,17 @@ struct DictatoApp: App {
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
         appState.transcribeFile(url: url, mode: mode) { [openWindow] in
+            AppState.shared.mainWindowTab = .history
+            NSApp.setActivationPolicy(.regular)
             NSApp.activate(ignoringOtherApps: true)
-            openWindow(id: "history")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                if let window = NSApp.windows.first(where: { $0.title == "History" }) {
-                    window.orderFrontRegardless()
-                }
-            }
+            openWindow(id: "main")
         }
+    }
+
+    private func openMainWindow() {
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+        openWindow(id: "main")
     }
 
     private var menuBarIcon: String {
@@ -112,6 +98,7 @@ struct DictatoApp: App {
 class AppDelegate: NSObject, NSApplicationDelegate {
     private var panel: FloatingPanel?
     private var stateObservation: Task<Void, Never>?
+    private var windowObserver: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let runningInstances = NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier!)
@@ -122,24 +109,29 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let appState = AppState.shared
 
+        // Watch for main window closing to switch back to accessory mode
+        windowObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: nil,
+            queue: .main
+        ) { notification in
+            guard let window = notification.object as? NSWindow,
+                  window.title == "Dictato",
+                  !window.className.contains("StatusBar") else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                NSApp.setActivationPolicy(.accessory)
+            }
+        }
+
         Task { @MainActor in
             await appState.requestPermissions()
 
             // Auto-open Settings if no models are downloaded
             if !appState.modelManager.hasAnyModelDownloaded {
+                appState.mainWindowTab = .settings
+                NSApp.setActivationPolicy(.regular)
                 NSApp.activate(ignoringOtherApps: true)
-                // Open settings via NSApp standard mechanism
-                if #available(macOS 14.0, *) {
-                    NSApp.activate()
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                        for window in NSApp.windows where window.title == "Settings" || window.className.contains("Settings") {
-                            window.orderFrontRegardless()
-                        }
-                    }
-                }
+                NotificationCenter.default.post(name: .openMainWindow, object: nil)
             }
         }
 

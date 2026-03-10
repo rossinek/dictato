@@ -31,12 +31,6 @@ struct SettingsView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
-                // Header
-                Text("Settings")
-                    .font(.title2.bold())
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 4)
-
                 // Transcription Models
                 SectionCard("Transcription Models") {
                     VStack(spacing: 12) {
@@ -117,7 +111,7 @@ struct SettingsView: View {
             }
             .padding(24)
         }
-        .frame(width: 550, height: 700)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
