@@ -14,7 +14,7 @@ class FloatingPanel: NSPanel {
     private var guideWindowBottom: NSWindow?
     private var ghostWindow: NSWindow?
     private var shouldSnap = false
-    private var mouseMonitor: Any?
+    private var isDragging = false
     var pillSize: NSSize = .zero
 
     init(contentView: some View) {
@@ -128,26 +128,24 @@ class FloatingPanel: NSPanel {
 
     private static let snapThreshold: CGFloat = 20
 
-    func installMouseMonitor() {
-        guard mouseMonitor == nil else { return }
-        mouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp) { [weak self] _ in
-            guard let self, self.shouldSnap, let screen = self.screen ?? NSScreen.main else { return }
-            let snappedX = screen.visibleFrame.midX - self.frame.width / 2
-            self.setFrameOrigin(NSPoint(x: snappedX, y: self.frame.origin.y))
-            self.hideSnapIndicators()
-            self.savePosition()
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .leftMouseDown {
+            isDragging = true
         }
-    }
-
-    func removeMouseMonitor() {
-        if let mouseMonitor {
-            NSEvent.removeMonitor(mouseMonitor)
-            self.mouseMonitor = nil
+        super.sendEvent(event)
+        if event.type == .leftMouseUp {
+            isDragging = false
+            if shouldSnap, let screen = screen ?? NSScreen.main {
+                let snappedX = screen.visibleFrame.midX - frame.width / 2
+                setFrameOrigin(NSPoint(x: snappedX, y: frame.origin.y))
+                savePosition()
+            }
+            hideSnapIndicators()
         }
     }
 
     @objc private func windowDidMove(_ notification: Notification) {
-        guard let screen = screen ?? NSScreen.main else { return }
+        guard isDragging, let screen = screen ?? NSScreen.main else { return }
         let screenMidX = screen.visibleFrame.midX
         let panelMidX = frame.midX
 
@@ -288,7 +286,7 @@ class FloatingPanel: NSPanel {
 
     deinit {
         removeKeyMonitor()
-        removeMouseMonitor()
+
         hideSnapIndicators()
     }
 }

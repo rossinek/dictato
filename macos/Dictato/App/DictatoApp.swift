@@ -216,7 +216,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if panel == nil {
             panel = FloatingPanel(contentView: overlay)
             panel?.installKeyMonitor()
-            panel?.installMouseMonitor()
+
         } else if let panel {
             let oldMidX = panel.frame.midX
             let hostingView = NSHostingView(rootView: overlay)
@@ -234,7 +234,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func hidePanel() {
         panel?.savePosition()
         panel?.removeKeyMonitor()
-        panel?.removeMouseMonitor()
+
         panel?.orderOut(nil)
         panel = nil
     }
