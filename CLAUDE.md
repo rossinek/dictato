@@ -10,7 +10,9 @@ A minimal SuperWhisper clone. Records speech and transcribes it locally.
 │   ├── Dictato/    # Source code
 │   ├── project.yml # XcodeGen spec
 │   └── ExportOptions.plist
-├── ios/            # iOS app (FluidAudio/Parakeet TDT v3) — planned
+├── ios/            # iOS app (FluidAudio/Parakeet TDT v3)
+│   ├── Dictato/    # Source code
+│   └── project.yml # XcodeGen spec
 ├── scripts/        # Build & notarize scripts
 ├── assets-raw/     # Source assets (icons, etc.)
 ├── IOS.md          # iOS app specification
@@ -95,7 +97,76 @@ macos/Dictato/
 
 ## iOS App
 
-See `IOS.md` for the full specification. Uses FluidAudio (Parakeet TDT v3 CoreML) instead of WhisperKit.
+### Build & Run
+
+```bash
+cd ios
+
+# Regenerate Xcode project after adding/removing files
+xcodegen generate
+
+# Build
+xcodebuild -project Dictato.xcodeproj -scheme Dictato -destination 'generic/platform=iOS' build
+```
+
+**Important:** CoreML recompiles models when the code signature changes (every Xcode rebuild). This makes each launch after a rebuild slow (~40s). Subsequent launches without rebuilding are fast (~1-2s). This only affects development.
+
+### Architecture
+
+#### Entry Point
+- `DictatoApp.swift` — SwiftUI `@main` app. `TabView` with Home, History, Settings tabs + file import action.
+- `AppState.swift` — `@MainActor` singleton (`AppState.shared`). Owns FluidAudio `AsrManager`, AVAudioEngine recording, transcription history. All state flows through here.
+
+#### Recording & Transcription Flow
+1. User taps the central record button on HomeView
+2. Recording uses `AVAudioEngine` with a tap on `inputNode`, converting to 16kHz mono via `AVAudioConverter`
+3. On stop, accumulated `[Float]` samples are passed to `asrManager.transcribe(samples, source: .system)`
+4. Result is shown in a sheet with Copy button
+5. Transcription is saved to history
+
+#### Key Files
+```
+ios/Dictato/
+├── App/
+│   ├── DictatoApp.swift          # App entry, TabView, file import
+│   ├── AppState.swift            # Central state, FluidAudio lifecycle, AVAudioEngine recording
+│   └── AppIntents.swift          # Shortcuts integration (Start Recording intent)
+├── UI/
+│   ├── HomeView.swift            # Main screen: record button, mode pills, result sheet
+│   ├── HistoryView.swift         # Past transcriptions (swipe-to-delete, context menu, re-transcribe)
+│   └── SettingsView.swift        # API keys, modes config, model picker
+├── Models/
+│   ├── Transcription.swift       # Codable data model (shared with macOS)
+│   └── TranscriptionMode.swift   # Mode definition (shared with macOS)
+├── Services/
+│   ├── LLMService.swift          # OpenAI/Groq post-processing (shared with macOS)
+│   └── PermissionsService.swift  # iOS microphone permission
+├── Resources/
+│   └── Info.plist                # Mic usage, URL scheme (dictato://)
+├── Assets.xcassets/              # Asset catalog
+└── AppIcon.icon/                 # Layered app icon (Icon Composer format)
+```
+
+#### Dependencies (SPM via project.yml)
+- **FluidAudio** — Parakeet TDT v3 CoreML model download, loading, and transcription
+
+#### Deep Links
+- `dictato://record` — opens app and starts recording with current mode
+- `dictato://record?mode=email` — starts recording with specified mode (case-insensitive, `+`/`-`/`_` match spaces)
+
+#### Shortcuts
+- **Start Recording** — available in Apple Shortcuts app. Opens Dictato and starts recording. Supports mode selection via parameter.
+
+#### Data Storage
+- **Model files:** `<AppSupport>/FluidAudio/Models/` (managed by FluidAudio)
+- **Transcription history:** `<AppSupport>/Dictato/history.json`
+- **Audio cache:** `<AppSupport>/Dictato/Recordings/`
+
+#### UI Design
+- iOS 26 Liquid Glass effects throughout (`.glassEffect()`, `GlassEffectContainer`)
+- State-driven central button with animated secondary actions
+- Mode pills with `matchedGeometryEffect` sliding selection
+- Glass cards in history with swipe-to-delete and context menu
 
 ## Logging
 
