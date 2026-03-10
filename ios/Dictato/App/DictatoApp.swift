@@ -12,6 +12,12 @@ struct DictatoApp: App {
                     await appState.requestPermissions()
                     await appState.initializeASR()
                 }
+                .onOpenURL { url in
+                    guard url.scheme == "dictato", url.host == "record" else { return }
+                    let mode = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                        .queryItems?.first(where: { $0.name == "mode" })?.value
+                    appState.pendingDeepLink = .record(mode: mode)
+                }
         }
     }
 }

@@ -6,6 +6,10 @@ import SwiftUI
 
 private let log = Logger(subsystem: "com.dictato.app", category: "AppState")
 
+enum DeepLink: Equatable {
+    case record(mode: String?)
+}
+
 @MainActor
 class AppState: ObservableObject {
     static let shared = AppState()
@@ -24,6 +28,7 @@ class AppState: ObservableObject {
     @Published var isFileTranscribing = false
     @Published var lastTranscriptionResult: Transcription?
     @Published var failedRecordingURL: URL?
+    @Published var pendingDeepLink: DeepLink?
 
     var selectedMode: TranscriptionMode {
         modes[min(selectedModeIndex, modes.count - 1)]

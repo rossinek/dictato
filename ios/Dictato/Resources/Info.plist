@@ -12,5 +12,16 @@
     <dict/>
     <key>NSMicrophoneUsageDescription</key>
     <string>Dictato needs microphone access to record and transcribe your speech.</string>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>com.dictato.ios</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>dictato</string>
+            </array>
+        </dict>
+    </array>
 </dict>
 </plist>

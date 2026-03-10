@@ -29,6 +29,16 @@ struct HomeView: View {
         }
         .padding(20)
         .navigationBarHidden(true)
+        .onChange(of: appState.isModelLoaded) { _, loaded in
+            if loaded, appState.pendingDeepLink != nil {
+                handleDeepLink()
+            }
+        }
+        .onChange(of: appState.pendingDeepLink) { _, link in
+            if link != nil, appState.isModelLoaded {
+                handleDeepLink()
+            }
+        }
         .sheet(item: $appState.lastTranscriptionResult) { transcription in
             ResultSheet(transcription: transcription) {
                 appState.lastTranscriptionResult = nil
@@ -37,6 +47,24 @@ struct HomeView: View {
     }
 
     // MARK: - Subviews
+
+    private func handleDeepLink() {
+        guard case .record(let modeName) = appState.pendingDeepLink else { return }
+        appState.pendingDeepLink = nil
+        if let modeName {
+            let normalize = { (s: String) -> String in
+                s.lowercased()
+                    .replacingOccurrences(of: "+", with: " ")
+                    .replacingOccurrences(of: "-", with: " ")
+                    .replacingOccurrences(of: "_", with: " ")
+            }
+            let param = normalize(modeName)
+            if let index = appState.modes.firstIndex(where: { normalize($0.name) == param }) {
+                appState.selectMode(index: index)
+            }
+        }
+        appState.startRecording()
+    }
 
     private var modelLoadingView: some View {
         VStack(spacing: 12) {
