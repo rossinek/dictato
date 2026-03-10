@@ -29,88 +29,72 @@ struct SettingsView: View {
     ]
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 20) {
-                // Transcription Models
-                SectionCard("Transcription Models") {
-                    VStack(spacing: 12) {
-                        ForEach(TranscriptionEngine.allCases) { engine in
-                            ModelRow(engine: engine, modelManager: modelManager)
-
-                            if engine != TranscriptionEngine.allCases.last {
-                                Divider()
-                            }
-                        }
-                    }
-                }
-
-                // Keyboard Shortcut
-                SectionCard("Keyboard Shortcut") {
-                    KeyboardShortcuts.Recorder("Toggle Recording:", name: .toggleRecording)
-                }
-
-                // API Keys
-                SectionCard("API Keys") {
-                    VStack(spacing: 12) {
-                        SecureField("OpenAI API Key", text: $openAIKey)
-                            .textFieldStyle(.roundedBorder)
-                        SecureField("Groq API Key", text: $groqKey)
-                            .textFieldStyle(.roundedBorder)
-                    }
-                }
-
-                // Modes
-                SectionCard("Modes") {
-                    VStack(spacing: 16) {
-                        ForEach(appState.modes) { mode in
-                            let modeID = mode.id
-                            ModeRow(
-                                mode: Binding(
-                                    get: { appState.modes.first(where: { $0.id == modeID }) ?? mode },
-                                    set: {
-                                        if let idx = appState.modes.firstIndex(where: { $0.id == modeID }) {
-                                            appState.modes[idx] = $0
-                                            appState.saveModes()
-                                        }
-                                    }
-                                ),
-                                modelManager: modelManager,
-                                canDelete: appState.modes.count > 1,
-                                onDelete: {
-                                    if let idx = appState.modes.firstIndex(where: { $0.id == modeID }) {
-                                        appState.modes.remove(at: idx)
-                                        if appState.selectedModeIndex >= appState.modes.count {
-                                            appState.selectedModeIndex = 0
-                                        }
-                                        appState.saveModes()
-                                    }
-                                }
-                            )
-
-                            if mode.id != appState.modes.last?.id {
-                                Divider()
-                            }
-                        }
-
-                        Button {
-                            let mode = TranscriptionMode(
-                                id: UUID(),
-                                name: "Mode \(appState.modes.count + 1)",
-                                language: nil,
-                                prompt: ""
-                            )
-                            appState.modes.append(mode)
-                            appState.saveModes()
-                        } label: {
-                            Label("Add Mode", systemImage: "plus")
-                        }
-                        .buttonStyle(.borderless)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
+        Form {
+            // Transcription Models
+            Section("Transcription Models") {
+                ForEach(TranscriptionEngine.allCases) { engine in
+                    ModelRow(engine: engine, modelManager: modelManager)
                 }
             }
-            .padding(24)
+
+            // Keyboard Shortcut
+            Section("Keyboard Shortcut") {
+                KeyboardShortcuts.Recorder("Toggle Recording:", name: .toggleRecording)
+            }
+
+            // API Keys
+            Section("API Keys") {
+                SecureField("OpenAI", text: $openAIKey)
+                SecureField("Groq", text: $groqKey)
+            }
+
+            // Modes
+            Section("Modes") {
+                ForEach(appState.modes) { mode in
+                    let modeID = mode.id
+                    ModeRow(
+                        mode: Binding(
+                            get: { appState.modes.first(where: { $0.id == modeID }) ?? mode },
+                            set: {
+                                if let idx = appState.modes.firstIndex(where: { $0.id == modeID }) {
+                                    appState.modes[idx] = $0
+                                    appState.saveModes()
+                                }
+                            }
+                        ),
+                        modelManager: modelManager,
+                        canDelete: appState.modes.count > 1,
+                        onDelete: {
+                            if let idx = appState.modes.firstIndex(where: { $0.id == modeID }) {
+                                withAnimation(.spring(duration: 0.3)) {
+                                    appState.modes.remove(at: idx)
+                                    if appState.selectedModeIndex >= appState.modes.count {
+                                        appState.selectedModeIndex = 0
+                                    }
+                                    appState.saveModes()
+                                }
+                            }
+                        }
+                    )
+                }
+
+                Button {
+                    withAnimation(.spring(duration: 0.3)) {
+                        let mode = TranscriptionMode(
+                            id: UUID(),
+                            name: "Mode \(appState.modes.count + 1)",
+                            language: nil,
+                            prompt: ""
+                        )
+                        appState.modes.append(mode)
+                        appState.saveModes()
+                    }
+                } label: {
+                    Label("Add Mode", systemImage: "plus")
+                }
+            }
         }
+        .formStyle(.grouped)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
@@ -174,7 +158,7 @@ private struct ModelRow: View {
             HStack(spacing: 8) {
                 ProgressView()
                     .scaleEffect(0.6)
-                Text("Compiling model (first time, may take a few minutes)...")
+                Text("Compiling model…")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -191,6 +175,8 @@ private struct ModelRow: View {
                     showDeleteConfirmation = true
                 } label: {
                     Image(systemName: "trash")
+                      .font(.system(size: 12))
+                      .foregroundStyle(.red)
                 }
                 .buttonStyle(.borderless)
                 .confirmationDialog("Delete \(engine.displayName)?", isPresented: $showDeleteConfirmation) {
@@ -232,31 +218,6 @@ private struct ModelRow: View {
     }
 }
 
-// MARK: - Section Card
-
-private struct SectionCard<Content: View>: View {
-    let title: String
-    let content: Content
-
-    init(_ title: String, @ViewBuilder content: () -> Content) {
-        self.title = title
-        self.content = content()
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(title)
-                .font(.headline)
-                .foregroundStyle(.secondary)
-
-            content
-                .padding(16)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
-        }
-    }
-}
-
 // MARK: - Mode Row
 
 private struct ModeRow: View {
@@ -265,143 +226,168 @@ private struct ModeRow: View {
     let canDelete: Bool
     let onDelete: () -> Void
 
+    @State private var isExpanded = false
     @State private var availableModels: [String] = []
     @State private var isLoadingModels = false
     @State private var modelLoadError: String?
-    @State private var modelSearch = ""
-    @FocusState private var isSearchFocused: Bool
+    @State private var lastFetchedProvider: LLMProvider?
 
     private var downloadedEngines: [TranscriptionEngine] {
         TranscriptionEngine.allCases.filter { modelManager.isDownloaded($0) }
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                TextField("Name", text: $mode.name)
-                    .textFieldStyle(.roundedBorder)
+        DisclosureGroup(isExpanded: $isExpanded) {
+            VStack(spacing: 0) {
+                settingsRow("Name") {
+                    TextField("", text: $mode.name)
+                        .textFieldStyle(.plain)
+                        .multilineTextAlignment(.trailing)
+                }
 
-                Picker("Language", selection: languageBinding) {
-                    ForEach(SettingsView.languages, id: \.0) { code, name in
-                        Text(name).tag(code as String?)
+                Divider()
+
+                settingsRow("Language") {
+                    Picker("", selection: languageBinding) {
+                        ForEach(SettingsView.languages, id: \.0) { code, name in
+                            Text(name).tag(code as String?)
+                        }
+                    }
+                    .labelsHidden()
+                    .fixedSize()
+                }
+
+                Divider()
+
+                if downloadedEngines.isEmpty {
+                    settingsRow("Model") {
+                        HStack(spacing: 4) {
+                            Image(systemName: "exclamationmark.triangle")
+                                .foregroundStyle(.orange)
+                                .font(.caption)
+                            Text("None downloaded")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } else {
+                    settingsRow("Model") {
+                        Picker("", selection: $mode.transcriptionEngine) {
+                            ForEach(downloadedEngines) { engine in
+                                Text(engine.displayName).tag(engine)
+                            }
+                        }
+                        .labelsHidden()
+                        .fixedSize()
                     }
                 }
-                .frame(width: 150)
+
+                Divider()
+
+                settingsRow("Post-processing") {
+                    Picker("", selection: $mode.provider) {
+                        ForEach(LLMProvider.allCases, id: \.self) { provider in
+                            Text(provider.displayName).tag(provider)
+                        }
+                    }
+                    .labelsHidden()
+                    .fixedSize()
+                }
+
+                if mode.provider != .none {
+                    Divider()
+
+                    settingsRow("LLM") {
+                        Picker("", selection: modelBinding) {
+                            if isLoadingModels {
+                                Text("Loading…").tag(nil as String?)
+                            } else if let error = modelLoadError {
+                                Text(error).tag(nil as String?)
+                            } else {
+                                Text("Select model").tag(nil as String?)
+                                ForEach(availableModels, id: \.self) { model in
+                                    Text(model).tag(model as String?)
+                                }
+                            }
+                        }
+                        .labelsHidden()
+                        .fixedSize()
+                        .disabled(isLoadingModels || modelLoadError != nil)
+                        .onChange(of: mode.provider) {
+                            availableModels = []
+                            modelLoadError = nil
+                            mode.model = nil
+                            fetchModels()
+                        }
+                        .onAppear {
+                            if lastFetchedProvider != mode.provider {
+                                fetchModels()
+                            }
+                        }
+                    }
+
+                    Divider()
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("System prompt")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+
+                        TextEditor(text: $mode.prompt)
+                            .font(.callout)
+                            .frame(minHeight: 50, maxHeight: 100)
+                            .scrollContentBackground(.hidden)
+                            .padding(6)
+                            .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+                            .overlay(alignment: .topLeading) {
+                                if mode.prompt.isEmpty {
+                                    Text("Instructions for post-processing…")
+                                        .foregroundStyle(.tertiary)
+                                        .font(.callout)
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 10)
+                                        .allowsHitTesting(false)
+                                }
+                            }
+                    }
+                    .padding(.vertical, 6)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+        } label: {
+            HStack {
+                Text(mode.name)
+                    .font(.body.weight(.medium))
 
                 if canDelete {
-                    Button(role: .destructive) {
-                        onDelete()
-                    } label: {
+                    Spacer()
+                    Button(role: .destructive, action: onDelete) {
                         Image(systemName: "trash")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.red)
                     }
                     .buttonStyle(.borderless)
                 }
             }
-
-            // Transcription engine picker
-            if downloadedEngines.isEmpty {
-                HStack(spacing: 4) {
-                    Image(systemName: "exclamationmark.triangle")
-                        .foregroundStyle(.orange)
-                    Text("No models downloaded. Download a model above to start transcribing.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                withAnimation {
+                    isExpanded.toggle()
                 }
-            } else {
-                Picker("Transcription Model", selection: $mode.transcriptionEngine) {
-                    ForEach(downloadedEngines) { engine in
-                        Text(engine.displayName).tag(engine)
-                    }
-                }
-            }
-
-            Picker("Post-processing", selection: $mode.provider) {
-                ForEach(LLMProvider.allCases, id: \.self) { provider in
-                    Text(provider.displayName).tag(provider)
-                }
-            }
-
-            if mode.provider != .none {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        TextField("Search models...", text: $modelSearch)
-                            .textFieldStyle(.roundedBorder)
-                            .focused($isSearchFocused)
-                            .onChange(of: isSearchFocused) {
-                                if isSearchFocused && availableModels.isEmpty && !isLoadingModels {
-                                    fetchModels()
-                                }
-                            }
-
-                        if isLoadingModels {
-                            ProgressView()
-                                .scaleEffect(0.5)
-                        }
-
-                        Button {
-                            fetchModels()
-                        } label: {
-                            Image(systemName: "arrow.clockwise")
-                        }
-                        .buttonStyle(.borderless)
-                    }
-
-                    if let error = modelLoadError {
-                        Text(error)
-                            .font(.caption)
-                            .foregroundStyle(.red)
-                    }
-
-                    let filtered = modelSearch.isEmpty ? availableModels :
-                        availableModels.filter { $0.localizedCaseInsensitiveContains(modelSearch) }
-
-                    if !filtered.isEmpty && isSearchFocused {
-                        ScrollView {
-                            LazyVStack(alignment: .leading, spacing: 0) {
-                                ForEach(filtered, id: \.self) { model in
-                                    Text(model)
-                                        .font(.system(.body, design: .monospaced))
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .padding(.horizontal, 8)
-                                        .padding(.vertical, 4)
-                                        .background(mode.model == model ? AnyShapeStyle(.tint.opacity(0.2)) : AnyShapeStyle(.clear), in: RoundedRectangle(cornerRadius: 4))
-                                        .contentShape(Rectangle())
-                                        .onTapGesture {
-                                            mode.model = model
-                                            isSearchFocused = false
-                                        }
-                                }
-                            }
-                            .padding(4)
-                        }
-                        .frame(maxHeight: 120)
-                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
-                    }
-
-                    if let selected = mode.model {
-                        Text("Selected: \(selected)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                TextEditor(text: $mode.prompt)
-                    .font(.body)
-                    .frame(minHeight: 60, maxHeight: 120)
-                    .scrollContentBackground(.hidden)
-                    .padding(8)
-                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 10))
-                    .overlay(alignment: .topLeading) {
-                        if mode.prompt.isEmpty {
-                            Text("System prompt for post-processing")
-                                .foregroundStyle(.tertiary)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 12)
-                                .allowsHitTesting(false)
-                        }
-                    }
             }
         }
+    }
+
+    private func settingsRow<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
+        HStack {
+            Text(label)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            Spacer()
+            content()
+        }
+        .padding(.vertical, 6)
     }
 
     private var languageBinding: Binding<String?> {
@@ -411,10 +397,18 @@ private struct ModeRow: View {
         )
     }
 
+    private var modelBinding: Binding<String?> {
+        Binding(
+            get: { mode.model },
+            set: { mode.model = $0 }
+        )
+    }
+
     private func fetchModels() {
         guard mode.provider != .none else { return }
         isLoadingModels = true
         modelLoadError = nil
+        lastFetchedProvider = mode.provider
         Task {
             do {
                 let models = try await LLMService.fetchModels(provider: mode.provider)
@@ -429,3 +423,4 @@ private struct ModeRow: View {
         }
     }
 }
+
