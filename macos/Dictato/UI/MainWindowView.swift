@@ -7,7 +7,7 @@ enum MainWindowTab: String, CaseIterable {
 
 struct MainWindowView: View {
     @ObservedObject private var appState = AppState.shared
-    @State private var selectedTab: MainWindowTab = .history
+    @State private var selectedTab: MainWindowTab = AppState.shared.mainWindowTab
 
     var body: some View {
         VStack(spacing: 0) {

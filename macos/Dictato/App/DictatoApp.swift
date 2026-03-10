@@ -2,10 +2,6 @@ import SwiftUI
 import KeyboardShortcuts
 import UniformTypeIdentifiers
 
-extension Notification.Name {
-    static let openMainWindow = Notification.Name("openMainWindow")
-}
-
 @main
 struct DictatoApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
@@ -59,11 +55,9 @@ struct DictatoApp: App {
         Window("Dictato", id: "main") {
             MainWindowView()
                 .toolbar(removing: .title)
-                .onReceive(NotificationCenter.default.publisher(for: .openMainWindow)) { _ in
-                    openMainWindow()
-                }
         }
         .defaultSize(width: 620, height: 550)
+        .defaultLaunchBehavior(.presented)
     }
 
     private func transcribeFileWithPicker(mode: TranscriptionMode) {
@@ -85,6 +79,10 @@ struct DictatoApp: App {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         openWindow(id: "main")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            NSApp.windows.first { $0.title == "Dictato" && !$0.className.contains("StatusBar") }?
+                .orderFrontRegardless()
+        }
     }
 
     private var menuBarIcon: String {
@@ -103,6 +101,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         let runningInstances = NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier!)
         if runningInstances.count > 1 {
+            // Tell the first instance to open its main window
+            DistributedNotificationCenter.default().postNotificationName(
+                .init("com.dictato.openMainWindow"),
+                object: nil
+            )
             NSApp.terminate(nil)
             return
         }
@@ -118,22 +121,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             guard let window = notification.object as? NSWindow,
                   window.title == "Dictato",
                   !window.className.contains("StatusBar") else { return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 NSApp.setActivationPolicy(.accessory)
             }
         }
 
+        // Listen for second instance asking us to open the window
+        DistributedNotificationCenter.default().addObserver(
+            forName: .init("com.dictato.openMainWindow"),
+            object: nil,
+            queue: .main
+        ) { _ in
+            NSApp.setActivationPolicy(.regular)
+            NSApp.activate(ignoringOtherApps: true)
+        }
+
         Task { @MainActor in
             await appState.requestPermissions()
-
-            // Auto-open Settings if no models are downloaded
-            if !appState.modelManager.hasAnyModelDownloaded {
-                appState.mainWindowTab = .settings
-                NSApp.setActivationPolicy(.regular)
-                NSApp.activate(ignoringOtherApps: true)
-                NotificationCenter.default.post(name: .openMainWindow, object: nil)
-            }
         }
+
+        appState.mainWindowTab = .settings
 
         KeyboardShortcuts.onKeyDown(for: .toggleRecording) {
             Task { @MainActor in
