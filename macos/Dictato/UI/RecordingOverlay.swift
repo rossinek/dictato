@@ -162,22 +162,22 @@ private struct AudioVisualizerView: View {
     private let barWidth: CGFloat = 2.5
     private let minBarHeight: CGFloat = 2
     private let referenceLevel: Float = 0.12
-    private let smoothing: Float = 0.15 // per-frame lerp factor (60fps)
 
-    @State private var displayedLevels: [Float] = []
-    @State private var targetLevels: [Float] = []
+    @State private var currentLevels: [Float] = []
+    @State private var lastUpdateTime: Date = .now
+    @State private var averageInterval: TimeInterval = 0.1
 
     var body: some View {
         GeometryReader { geo in
             let barCount = max(1, Int(geo.size.width / (barWidth + barSpacing)))
             let maxHeight = geo.size.height
 
-            TimelineView(.animation) { _ in
-                let current = stepAndGet(barCount: barCount)
+            TimelineView(.animation) { context in
+                let interpolated = interpolatedLevels(at: context.date, barCount: barCount)
 
                 HStack(spacing: barSpacing) {
-                    ForEach(0..<current.count, id: \.self) { i in
-                        let level = current[i]
+                    ForEach(0..<interpolated.count, id: \.self) { i in
+                        let level = interpolated[i]
                         let barHeight = max(minBarHeight, CGFloat(level) * maxHeight)
 
                         RoundedRectangle(cornerRadius: barWidth / 2)
@@ -189,34 +189,39 @@ private struct AudioVisualizerView: View {
             }
         }
         .onChange(of: levels) {
-            targetLevels = normalizedLevels()
+            let now = Date.now
+            let interval = now.timeIntervalSince(lastUpdateTime)
+            if interval > 0.01 && interval < 1.0 {
+                // Smooth the interval estimate
+                averageInterval = averageInterval * 0.7 + interval * 0.3
+            }
+            lastUpdateTime = now
+            currentLevels = normalizedLevels()
         }
     }
 
-    /// Called every frame by TimelineView — smoothly interpolates displayed toward target
-    private func stepAndGet(barCount: Int) -> [Float] {
-        let target = targetLevels.isEmpty ? normalizedLevels() : targetLevels
+    /// Each frame: blend bar[i] toward bar[i+1] based on time progress between data updates
+    private func interpolatedLevels(at date: Date, barCount: Int) -> [Float] {
+        let source = currentLevels
+        guard !source.isEmpty else { return Array(repeating: 0, count: barCount) }
 
-        var current = displayedLevels
-        // Resize
-        while current.count < target.count { current.append(0) }
-        if current.count > target.count { current = Array(current.prefix(target.count)) }
+        let elapsed = date.timeIntervalSince(lastUpdateTime)
+        let t = Float(min(max(elapsed / averageInterval, 0), 1))
 
-        // Per-bar lerp toward target
-        for i in 0..<target.count {
-            current[i] += (target[i] - current[i]) * smoothing
+        // Blend each bar toward its right neighbor
+        var result = [Float](repeating: 0, count: source.count)
+        for i in 0..<source.count {
+            if i == source.count - 1 {
+                result[i] = source[i]
+            } else {
+                result[i] = source[i] * (1 - t) + source[i + 1] * t
+            }
         }
 
-        // Write back (triggers next frame diff)
-        DispatchQueue.main.async {
-            displayedLevels = current
+        if result.count > barCount {
+            return Array(result.suffix(barCount))
         }
-
-        // Trim to bar count
-        if current.count > barCount {
-            return Array(current.suffix(barCount))
-        }
-        return current
+        return result
     }
 
     private func normalizedLevels() -> [Float] {
