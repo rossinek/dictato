@@ -6,7 +6,7 @@ A minimal SuperWhisper clone. Records speech and transcribes it locally.
 
 ```
 .
-├── macos/          # macOS menu bar app (WhisperKit)
+├── macos/          # macOS menu bar app (WhisperKit + FluidAudio)
 │   ├── Dictato/    # Source code
 │   ├── project.yml # XcodeGen spec
 │   └── ExportOptions.plist
@@ -42,49 +42,65 @@ xcodebuild -project Dictato.xcodeproj -scheme Dictato -destination 'platform=mac
 
 #### Entry Point
 - `DictatoApp.swift` — SwiftUI `@main` app. `MenuBarExtra` for the tray icon/menu. `AppDelegate` handles shortcut registration and floating panel lifecycle.
-- `AppState.swift` — `@MainActor` singleton (`AppState.shared`). Owns WhisperKit instance, recording state, transcription history. All state flows through here.
+- `AppState.swift` — `@MainActor` singleton (`AppState.shared`). Owns AVAudioEngine recording, delegates transcription to `ModelManager`. All state flows through here.
 
 #### Recording & Transcription Flow
 1. Global shortcut (default: **Option+Space**) toggles recording via `AppState.toggleRecording()`
-2. Recording uses WhisperKit's built-in `audioProcessor.startRecordingLive()` — no custom AVAudioEngine
-3. On stop, accumulated `[Float]` samples are passed to `whisperKit.transcribe(audioArray:)`
-4. Result is pasted at cursor via `PasteService` (CGEvent Cmd+V simulation)
-5. Transcription is saved to history
+2. Recording uses `AVAudioEngine` with `inputNode.installTap()`, converting to 16kHz mono — unified pipeline for both engines
+3. Model preloading begins in the background when recording starts (via `ModelManager.preload()`)
+4. If the user changes modes mid-recording, the previous model load is cancelled and the new one starts
+5. On stop, `AppState` awaits model load completion, then passes accumulated `[Float]` samples to the loaded engine
+6. Result is pasted at cursor via `PasteService` (CGEvent Cmd+V simulation)
+7. Model is unloaded from RAM after transcription
+8. Transcription is saved to history
+
+#### Model Management
+- Models are **not auto-downloaded** at launch. The user downloads models explicitly from Settings.
+- If no models are downloaded on first launch, Settings opens automatically.
+- Each mode specifies which transcription engine to use (per-mode selection).
+- Models are loaded on demand and unloaded after each transcription — no persistent RAM usage.
+- `ModelManager` (`Services/ModelManager.swift`) abstracts both engines behind a common preload/transcribe/unload lifecycle.
 
 #### Key Files
 ```
 macos/Dictato/
 ├── App/
 │   ├── DictatoApp.swift          # App entry, MenuBarExtra, AppDelegate
-│   └── AppState.swift            # Central state, WhisperKit lifecycle, recording
+│   └── AppState.swift            # Central state, AVAudioEngine recording, mode management
 ├── UI/
 │   ├── FloatingPanel.swift       # NSPanel (non-activating, won't steal focus)
 │   ├── RecordingOverlay.swift    # Pill-shaped recording/transcribing indicator
+│   ├── MainWindowView.swift      # Tab-based window (History + Settings)
 │   ├── HistoryView.swift         # Past transcriptions list (click to copy)
-│   └── SettingsView.swift        # Shortcut recorder
+│   └── SettingsView.swift        # Model downloads, shortcut, modes, API keys
 ├── Services/
+│   ├── ModelManager.swift        # Multi-engine abstraction (WhisperKit + FluidAudio)
+│   ├── LLMService.swift          # OpenAI/Groq post-processing
 │   ├── PasteService.swift        # Clipboard + CGEvent Cmd+V
 │   └── PermissionsService.swift  # Mic & accessibility permission checks
 ├── Shortcuts/
 │   └── GlobalShortcut.swift      # KeyboardShortcuts.Name definition
 ├── Models/
-│   └── Transcription.swift       # Codable data model
+│   ├── Transcription.swift       # Codable data model
+│   └── TranscriptionMode.swift   # Mode with engine selection
 └── Resources/
     ├── Info.plist                 # LSUIElement=YES, mic usage description
     └── Dictato.entitlements       # Empty (no sandbox for dev)
 ```
 
 #### Dependencies (SPM via project.yml)
-- **WhisperKit** (argmaxinc) — model download, audio processing, transcription
+- **WhisperKit** (argmaxinc) — Whisper Large V3 Turbo model download and transcription
+- **FluidAudio** (FluidInference) — Parakeet TDT V3 model download and transcription
 - **KeyboardShortcuts** (sindresorhus) — global hotkey with configurable UI
 
 #### Data Storage
-- **Model files:** `~/Library/Application Support/Dictato/Models/`
+- **WhisperKit models:** `~/Library/Application Support/Dictato/Models/`
+- **FluidAudio models:** `~/Library/Application Support/Dictato/FluidAudio/`
 - **Transcription history:** `~/Library/Application Support/Dictato/history.json`
 
 ### Known Issues / Dev Notes
 
-- **Slow first launch:** CoreML compiles the model for your hardware on first load (~2-3 min). Cached after that, but cache is invalidated by code signature changes (every Xcode rebuild).
+- **Slow first model download:** WhisperKit prewarming compiles the CoreML model during download (~2-3 min). Cached after that, but cache is invalidated by code signature changes (every Xcode rebuild). FluidAudio has a similar first-load compilation cost.
 - **Accessibility permissions:** Tied to code signature. After rebuilding, you may need to re-add the app in System Settings > Privacy & Security > Accessibility.
 - **Sandbox disabled:** Entitlements file is empty for development. Needs proper sandbox + hardened runtime for distribution.
 - **State observation:** The floating panel is managed via a polling Task (100ms) watching `AppState` properties. This works but could be replaced with Combine publishers if needed.
@@ -93,7 +109,7 @@ macos/Dictato/
 
 - **New UI:** Add SwiftUI views in `macos/Dictato/UI/`, run `xcodegen generate` from `macos/` to update the project.
 - **Settings:** Add controls to `SettingsView.swift`, store values with `@AppStorage` or `UserDefaults`.
-- **Model selection:** Change the variant string in `AppState.initializeWhisperKit()`. Available variants are in the `argmaxinc/whisperkit-coreml` HuggingFace repo.
+- **New transcription engine:** Add a case to `TranscriptionEngine` enum in `ModelManager.swift`, implement download/load/transcribe/unload methods, and add UI in `SettingsView`.
 
 ## iOS App
 
@@ -170,4 +186,4 @@ ios/Dictato/
 
 ## Logging
 
-Uses `os.Logger` with subsystem `com.dictato.app`. Categories: `AppState`, `Permissions`, `PasteService`. View in Xcode console or Console.app.
+Uses `os.Logger` with subsystem `com.dictato.app`. Categories: `AppState`, `ModelManager`, `Permissions`, `PasteService`. View in Xcode console or Console.app.

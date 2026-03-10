@@ -2,7 +2,7 @@
 
 Local speech-to-text for macOS and iOS. Records speech and transcribes locally — no cloud transcription. Optionally post-processes transcriptions via OpenAI or Groq.
 
-- **macOS**: Menu bar app using [WhisperKit](https://github.com/argmaxinc/WhisperKit) (Whisper large-v3-turbo). Global shortcut to record, auto-pastes at cursor.
+- **macOS**: Menu bar app with two transcription engines — [WhisperKit](https://github.com/argmaxinc/WhisperKit) (Whisper large-v3-turbo) and [FluidAudio](https://github.com/FluidInference/FluidAudio) (Parakeet TDT v3). Global shortcut to record, auto-pastes at cursor. Models downloaded on demand, loaded per-transcription.
 - **iOS**: Standalone app using [FluidAudio](https://github.com/FluidInference/FluidAudio) (Parakeet TDT v3). Liquid Glass UI, Apple Shortcuts integration, deep links.
 
 ## Requirements
@@ -81,5 +81,6 @@ Output: `build/export/Dictato.zip`
 
 ## Notes
 
-- First launch is slow while CoreML compiles the model for your hardware (~2-3 min on macOS, ~40s on iOS). Cached after that, but cache is invalidated by code signature changes (every Xcode rebuild).
+- On macOS, models are not auto-downloaded. Open Settings to download your preferred transcription engine. First download includes CoreML compilation (~2-3 min), cached after that but invalidated by code signature changes (every Xcode rebuild).
+- On iOS, first launch is slow while CoreML compiles the model (~40s). Cached after that, but cache is invalidated by code signature changes (every Xcode rebuild).
 - The `.xcodeproj` is gitignored — always regenerate with `xcodegen generate` after pulling changes.
