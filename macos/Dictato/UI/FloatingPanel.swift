@@ -59,9 +59,10 @@ class FloatingPanel: NSPanel {
 
             // Number keys 1-9: keyCodes 18-21 (1-4), 23 (5), 22 (6), 26 (7), 28 (8), 25 (9)
             let numberKeyMap: [Int64: Int] = [18: 0, 19: 1, 20: 2, 21: 3, 23: 4, 22: 5, 26: 6, 28: 7, 25: 8]
+            let passthrough = Unmanaged.passRetained(event)
 
             switch keyCode {
-            case 53: // Escape
+            case 53: // Escape — always handled when panel is visible
                 Task { @MainActor in
                     let state = AppState.shared
                     if state.isError {
@@ -74,25 +75,34 @@ class FloatingPanel: NSPanel {
                         state.togglePause()
                     }
                 }
-                return nil // swallow the event
-            case 36: // Enter
-                Task { @MainActor in
-                    let state = AppState.shared
-                    if state.isError {
-                        state.saveFailedRecording()
-                    } else if state.isPaused {
-                        state.discardRecording()
-                    }
-                }
+                // Escape always has a handler when panel is visible
                 return nil
-            default:
-                if let modeIndex = numberKeyMap[keyCode] {
+            case 36: // Enter — only handle in error or paused state
+                let state = AppState.shared
+                if state.isError || state.isPaused {
                     Task { @MainActor in
-                        AppState.shared.selectMode(index: modeIndex)
+                        if state.isError {
+                            state.saveFailedRecording()
+                        } else if state.isPaused {
+                            state.discardRecording()
+                        }
                     }
                     return nil
                 }
-                return Unmanaged.passRetained(event)
+                return passthrough
+            default:
+                if let modeIndex = numberKeyMap[keyCode] {
+                    let state = AppState.shared
+                    // Only swallow if mode pills are visible and index is valid
+                    let modePillsVisible = state.modes.count > 1 && !state.isTranscribing && !state.isPostProcessing && !state.isError
+                    if modePillsVisible && modeIndex < state.modes.count {
+                        Task { @MainActor in
+                            state.selectMode(index: modeIndex)
+                        }
+                        return nil
+                    }
+                }
+                return passthrough
             }
         }
 
