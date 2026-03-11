@@ -214,6 +214,64 @@ class AppState: ObservableObject {
         }
     }
 
+    /// Stop recording, transcribe, and return the result text. For use by AppIntents.
+    func stopAndTranscribeAsync() async -> String {
+        guard let engine = audioEngine else { return "" }
+
+        engine.inputNode.removeTap(onBus: 0)
+        engine.stop()
+        audioEngine = nil
+        isRecording = false
+        isPaused = false
+        isTranscribing = true
+
+        let samples = audioSamples
+        let mode = selectedMode
+        audioSamples = []
+
+        defer {
+            isTranscribing = false
+            isPostProcessing = false
+        }
+
+        do {
+            guard let asrManager else { return "" }
+            let result = try await asrManager.transcribe(samples, source: .system)
+            let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { return "" }
+
+            isTranscribing = false
+            var finalText = text
+            let trimmedPrompt = mode.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+            if mode.provider != .none, let model = mode.model, !trimmedPrompt.isEmpty {
+                isPostProcessing = true
+                if let processed = try? await LLMService.postProcess(
+                    provider: mode.provider, model: model,
+                    systemPrompt: trimmedPrompt, userMessage: text
+                ) {
+                    finalText = processed
+                }
+                isPostProcessing = false
+            }
+
+            let audioFileName = saveAudioFile(samples: samples, id: nil)
+            let transcription = Transcription(
+                text: text,
+                postProcessedText: finalText != text ? finalText : nil,
+                modeName: mode.name,
+                audioFileName: audioFileName
+            )
+            transcriptionHistory.insert(transcription, at: 0)
+            cleanupOldRecordings()
+            saveHistory()
+            lastTranscriptionResult = transcription
+            return finalText
+        } catch {
+            log.error("Transcription failed: \(error)")
+            return ""
+        }
+    }
+
     func stopAndTranscribe() {
         guard let engine = audioEngine else { return }
 

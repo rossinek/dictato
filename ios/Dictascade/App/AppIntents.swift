@@ -22,10 +22,28 @@ struct StartRecordingIntent: AppIntent {
     }
 }
 
+// MARK: - Stop Recording Intent
+
+struct StopRecordingIntent: AppIntent {
+    static var title: LocalizedStringResource = "Stop Recording"
+    static var description: IntentDescription = "Stops recording, transcribes, and returns the text. Returns empty if not recording."
+    static var openAppWhenRun = false
+
+    @MainActor
+    func perform() async throws -> some ReturnsValue<String> {
+        let appState = AppState.shared
+        guard appState.isRecording || appState.isPaused else {
+            return .result(value: "")
+        }
+        let text = await appState.stopAndTranscribeAsync()
+        return .result(value: text)
+    }
+}
+
 // MARK: - Transcribe File Intent
 
 struct TranscribeFileIntent: AppIntent {
-    static var title: LocalizedStringResource = "Transcribe Audio File"
+    static var title: LocalizedStringResource = "Transcribe Audio"
     static var description: IntentDescription = "Transcribes an audio file and returns the text. The model must be loaded first by opening Dictascade."
     static var openAppWhenRun = false
 
@@ -111,12 +129,21 @@ struct DictascadeShortcuts: AppShortcutsProvider {
             systemImageName: "mic.fill"
         )
         AppShortcut(
+            intent: StopRecordingIntent(),
+            phrases: [
+                "Stop recording with \(.applicationName)",
+                "Stop \(.applicationName)"
+            ],
+            shortTitle: "Stop Recording",
+            systemImageName: "stop.fill"
+        )
+        AppShortcut(
             intent: TranscribeFileIntent(),
             phrases: [
                 "Transcribe a file with \(.applicationName)",
                 "Transcribe audio with \(.applicationName)"
             ],
-            shortTitle: "Transcribe File",
+            shortTitle: "Transcribe Audio",
             systemImageName: "doc.text"
         )
     }
