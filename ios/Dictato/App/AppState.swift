@@ -381,6 +381,57 @@ class AppState: ObservableObject {
         }
     }
 
+    /// Transcribe an audio file and return the result text (for AppIntents / Shortcuts).
+    func transcribeFileAsync(url: URL, mode: TranscriptionMode) async throws -> String {
+        guard let samples = loadAudioFromFile(url: url) else {
+            throw TranscriptionError.fileLoadFailed
+        }
+        guard let asrManager else {
+            throw TranscriptionError.modelNotLoaded
+        }
+
+        let result = try await asrManager.transcribe(samples, source: .system)
+        let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else {
+            throw TranscriptionError.emptyResult
+        }
+
+        var finalText = text
+        let trimmedPrompt = mode.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        if mode.provider != .none, let model = mode.model, !trimmedPrompt.isEmpty {
+            if let processed = try? await LLMService.postProcess(
+                provider: mode.provider,
+                model: model,
+                systemPrompt: trimmedPrompt,
+                userMessage: text
+            ) {
+                finalText = processed
+            }
+        }
+
+        let transcription = Transcription(
+            text: text,
+            postProcessedText: finalText != text ? finalText : nil,
+            modeName: mode.name
+        )
+        transcriptionHistory.insert(transcription, at: 0)
+        saveHistory()
+
+        return finalText
+    }
+
+    enum TranscriptionError: LocalizedError {
+        case fileLoadFailed, modelNotLoaded, emptyResult
+
+        var errorDescription: String? {
+            switch self {
+            case .fileLoadFailed: return "Failed to load audio file"
+            case .modelNotLoaded: return "Transcription model is not loaded"
+            case .emptyResult: return "Transcription returned empty text"
+            }
+        }
+    }
+
     func transcribeFile(url: URL, mode: TranscriptionMode, completion: @escaping () -> Void) {
         guard !isRecording, !isTranscribing, !isFileTranscribing, isModelLoaded else { return }
         guard let samples = loadAudioFromFile(url: url) else {
