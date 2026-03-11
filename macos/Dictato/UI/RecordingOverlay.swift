@@ -188,20 +188,39 @@ private struct AudioVisualizerView: View {
                 let now = context.date
 
                 Canvas { ctx, size in
+                    let fadeZone: CGFloat = 0.15 // fraction of width for edge fade
+
                     for bar in bars {
                         let age = now.timeIntervalSince(bar.birthTime)
                         let progress = age / travelDuration
                         guard progress >= 0 && progress <= 1 else { continue }
 
-                        // Ease-in-out: fast at edges, slow in middle
                         let eased = easeInOut(Float(progress))
                         let x = width * (1 - CGFloat(eased)) - barWidth / 2
                         let barHeight = max(minBarHeight, CGFloat(bar.level) * maxHeight)
                         let y = (maxHeight - barHeight) / 2
 
-                        let rect = CGRect(x: x, y: y, width: barWidth, height: barHeight)
+                        // Edge proximity (0 at edge, 1 in center)
+                        let posNorm = x / width
+                        let edgeProximity: CGFloat
+                        if posNorm < fadeZone {
+                            edgeProximity = posNorm / fadeZone
+                        } else if posNorm > 1 - fadeZone {
+                            edgeProximity = (1 - posNorm) / fadeZone
+                        } else {
+                            edgeProximity = 1
+                        }
+
+                        // Vertical scale: 3x at edge, 1x in center
+                        let maxScale: CGFloat = 2.0
+                        let vScale = 1 + (maxScale - 1) * (1 - edgeProximity)
+                        let scaledHeight = barHeight * vScale
+                        let scaledY = (maxHeight - scaledHeight) / 2
+
+                        let baseOpacity = 0.3 + Double(bar.level) * 0.7
+                        let rect = CGRect(x: x, y: scaledY, width: barWidth, height: scaledHeight)
                         let path = Path(roundedRect: rect, cornerRadius: barWidth / 2)
-                        ctx.fill(path, with: .color(.white.opacity(0.3 + Double(bar.level) * 0.7)))
+                        ctx.fill(path, with: .color(.white.opacity(baseOpacity * Double(edgeProximity))))
                     }
                 }
                 .frame(width: width, height: maxHeight)
@@ -220,16 +239,16 @@ private struct AudioVisualizerView: View {
         }
     }
 
-    /// Slow in middle, fast at edges (inverted ease-in-out)
+    /// Fast at edges, slow (but never zero) in middle
     private func easeInOut(_ t: Float) -> Float {
+        // Symmetric curve: fast at 0 and 1, slowest at 0.5
+        // f(t) using smoothstep inverse concept
         if t < 0.5 {
-            // Fast start, decelerating
-            let s = 1 - 2 * t
-            return 0.5 * (1 - s * s * s)
+            // Fast deceleration: sqrt curve (fast start, slows down)
+            return 0.5 * pow(2 * t, 0.6)
         } else {
-            // Accelerating to fast end
-            let s = 2 * t - 1
-            return 0.5 + 0.5 * s * s * s
+            // Mirror: accelerates toward exit
+            return 1 - 0.5 * pow(2 * (1 - t), 0.6)
         }
     }
 
