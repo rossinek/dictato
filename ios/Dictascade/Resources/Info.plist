@@ -25,6 +25,10 @@
     <dict/>
     <key>NSMicrophoneUsageDescription</key>
     <string>Dictascade needs microphone access to record and transcribe your speech.</string>
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>audio</string>
+    </array>
     <key>CFBundleURLTypes</key>
     <array>
         <dict>
