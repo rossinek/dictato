@@ -15,7 +15,6 @@ class FloatingPanel: NSPanel {
     private var ghostWindow: NSWindow?
     private var shouldSnap = false
     private var isDragging = false
-    var pillSize: NSSize = .zero
 
     init(contentView: some View) {
         super.init(
@@ -200,7 +199,8 @@ class FloatingPanel: NSPanel {
     }
 
     private func showGhost(on screen: NSScreen) {
-        let size = pillSize.width > 0 ? pillSize : frame.size
+        // Pill height without mode pills row
+        let size = NSSize(width: frame.width, height: min(frame.height, 77))
         let snappedX = screen.visibleFrame.midX - size.width / 2
         let ghostY = frame.origin.y + frame.height - size.height
         let ghostRect = NSRect(x: snappedX, y: ghostY, width: size.width, height: size.height)

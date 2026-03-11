@@ -203,16 +203,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             isPostProcessing: postProcessing,
             isError: isError
         )
-        // Measure pill-only size (overlay with single mode hides mode pills)
-        let pillOnly = RecordingOverlay(
-            isRecording: recording,
-            isPaused: isPaused,
-            isTranscribing: transcribing,
-            isPostProcessing: postProcessing,
-            isError: isError
-        )
-        let pillMeasure = NSHostingView(rootView: pillOnly)
-        let measuredPillSize = pillMeasure.fittingSize
 
         if panel == nil {
             panel = FloatingPanel(contentView: overlay)
@@ -227,7 +217,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let newX = oldMidX - size.width / 2
             panel.setFrameOrigin(NSPoint(x: newX, y: panel.frame.origin.y))
         }
-        panel?.pillSize = measuredPillSize
         panel?.orderFront(nil)
     }
 
