@@ -10,6 +10,10 @@
     <string>AppIcon</string>
     <key>CFBundleIconName</key>
     <string>AppIcon</string>
+    <key>CFBundleShortVersionString</key>
+    <string>$(MARKETING_VERSION)</string>
+    <key>CFBundleVersion</key>
+    <string>$(CURRENT_PROJECT_VERSION)</string>
 <key>NSMicrophoneUsageDescription</key>
     <string>Dictato needs microphone access to record and transcribe your speech.</string>
 </dict>
