@@ -3,7 +3,7 @@ import SwiftUI
 
 struct StartRecordingIntent: AppIntent {
     static var title: LocalizedStringResource = "Start Recording"
-    static var description: IntentDescription = "Opens Dictato and starts recording with the selected mode."
+    static var description: IntentDescription = "Opens Dictascade and starts recording with the selected mode."
     static var openAppWhenRun = true
 
     @Parameter(title: "Mode")
@@ -26,7 +26,7 @@ struct StartRecordingIntent: AppIntent {
 
 struct TranscribeFileIntent: AppIntent {
     static var title: LocalizedStringResource = "Transcribe Audio File"
-    static var description: IntentDescription = "Transcribes an audio file and returns the text. The model must be loaded first by opening Dictato."
+    static var description: IntentDescription = "Transcribes an audio file and returns the text. The model must be loaded first by opening Dictascade."
     static var openAppWhenRun = false
 
     @Parameter(title: "Audio File", supportedContentTypes: [.audio])
@@ -98,7 +98,7 @@ struct ModeEntityQuery: EntityQuery {
 
 // MARK: - Shortcuts Provider
 
-struct DictatoShortcuts: AppShortcutsProvider {
+struct DictascadeShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         AppShortcut(
             intent: StartRecordingIntent(),

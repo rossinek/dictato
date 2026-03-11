@@ -2,7 +2,7 @@ import AppIntents
 
 struct StartRecordingIntent: AppIntent {
     static var title: LocalizedStringResource = "Start Recording"
-    static var description: IntentDescription = "Opens Dictato and starts recording with the selected mode."
+    static var description: IntentDescription = "Opens Dictascade and starts recording with the selected mode."
     static var openAppWhenRun = false
 
     @Parameter(title: "Mode")
@@ -92,7 +92,7 @@ struct ModeEntityQuery: EntityQuery {
 
 // MARK: - Shortcuts Provider
 
-struct DictatoShortcuts: AppShortcutsProvider {
+struct DictascadeShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         AppShortcut(
             intent: StartRecordingIntent(),

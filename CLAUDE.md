@@ -1,4 +1,4 @@
-# Dictato
+# Dictascade
 
 A minimal SuperWhisper clone. Records speech and transcribes it locally.
 
@@ -7,11 +7,11 @@ A minimal SuperWhisper clone. Records speech and transcribes it locally.
 ```
 .
 ├── macos/          # macOS menu bar app (WhisperKit + FluidAudio)
-│   ├── Dictato/    # Source code
+│   ├── Dictascade/ # Source code
 │   ├── project.yml # XcodeGen spec
 │   └── ExportOptions.plist
 ├── ios/            # iOS app (FluidAudio/Parakeet TDT v3)
-│   ├── Dictato/    # Source code
+│   ├── Dictascade/ # Source code
 │   └── project.yml # XcodeGen spec
 ├── scripts/        # Build & notarize scripts
 ├── assets-raw/     # Source assets (icons, etc.)
@@ -30,10 +30,10 @@ cd macos
 xcodegen generate
 
 # Build
-xcodebuild -project Dictato.xcodeproj -scheme Dictato -destination 'platform=macOS' build
+xcodebuild -project Dictascade.xcodeproj -scheme Dictascade -destination 'platform=macOS' build
 
 # The built app is at:
-# ~/Library/Developer/Xcode/DerivedData/Dictato-*/Build/Products/Debug/Dictato.app
+# ~/Library/Developer/Xcode/DerivedData/Dictascade-*/Build/Products/Debug/Dictascade.app
 ```
 
 **Important:** Do not rebuild between accessibility permission grants — each rebuild changes the ad-hoc code signature, invalidating macOS accessibility trust. Relaunch without rebuilding when testing.
@@ -41,7 +41,7 @@ xcodebuild -project Dictato.xcodeproj -scheme Dictato -destination 'platform=mac
 ### Architecture
 
 #### Entry Point
-- `DictatoApp.swift` — SwiftUI `@main` app. `MenuBarExtra` for the tray icon/menu. `AppDelegate` handles shortcut registration and floating panel lifecycle.
+- `DictascadeApp.swift` — SwiftUI `@main` app. `MenuBarExtra` for the tray icon/menu. `AppDelegate` handles shortcut registration and floating panel lifecycle.
 - `AppState.swift` — `@MainActor` singleton (`AppState.shared`). Owns AVAudioEngine recording, delegates transcription to `ModelManager`. All state flows through here.
 
 #### Recording & Transcription Flow
@@ -63,10 +63,11 @@ xcodebuild -project Dictato.xcodeproj -scheme Dictato -destination 'platform=mac
 
 #### Key Files
 ```
-macos/Dictato/
+macos/Dictascade/
 ├── App/
-│   ├── DictatoApp.swift          # App entry, MenuBarExtra, AppDelegate
-│   └── AppState.swift            # Central state, AVAudioEngine recording, mode management
+│   ├── DictascadeApp.swift       # App entry, MenuBarExtra, AppDelegate
+│   ├── AppState.swift            # Central state, AVAudioEngine recording, mode management
+│   └── AppIntents.swift          # Apple Shortcuts (Start Recording, Transcribe File)
 ├── UI/
 │   ├── FloatingPanel.swift       # NSPanel (non-activating, won't steal focus)
 │   ├── RecordingOverlay.swift    # Pill-shaped recording/transcribing indicator
@@ -85,7 +86,7 @@ macos/Dictato/
 │   └── TranscriptionMode.swift   # Mode with engine selection
 └── Resources/
     ├── Info.plist                 # LSUIElement=YES, mic usage description
-    └── Dictato.entitlements       # Empty (no sandbox for dev)
+    └── Dictascade.entitlements    # Empty (no sandbox for dev)
 ```
 
 #### Dependencies (SPM via project.yml)
@@ -94,9 +95,9 @@ macos/Dictato/
 - **KeyboardShortcuts** (sindresorhus) — global hotkey with configurable UI
 
 #### Data Storage
-- **WhisperKit models:** `~/Library/Application Support/Dictato/Models/`
-- **FluidAudio models:** `~/Library/Application Support/Dictato/FluidAudio/`
-- **Transcription history:** `~/Library/Application Support/Dictato/history.json`
+- **WhisperKit models:** `~/Library/Application Support/Dictascade/Models/`
+- **FluidAudio models:** `~/Library/Application Support/Dictascade/FluidAudio/`
+- **Transcription history:** `~/Library/Application Support/Dictascade/history.json`
 
 ### Known Issues / Dev Notes
 
@@ -107,7 +108,7 @@ macos/Dictato/
 
 ### Adding New Features
 
-- **New UI:** Add SwiftUI views in `macos/Dictato/UI/`, run `xcodegen generate` from `macos/` to update the project.
+- **New UI:** Add SwiftUI views in `macos/Dictascade/UI/`, run `xcodegen generate` from `macos/` to update the project.
 - **Settings:** Add controls to `SettingsView.swift`, store values with `@AppStorage` or `UserDefaults`.
 - **New transcription engine:** Add a case to `TranscriptionEngine` enum in `ModelManager.swift`, implement download/load/transcribe/unload methods, and add UI in `SettingsView`.
 
@@ -122,7 +123,7 @@ cd ios
 xcodegen generate
 
 # Build
-xcodebuild -project Dictato.xcodeproj -scheme Dictato -destination 'generic/platform=iOS' build
+xcodebuild -project Dictascade.xcodeproj -scheme Dictascade -destination 'generic/platform=iOS' build
 ```
 
 **Important:** CoreML recompiles models when the code signature changes (every Xcode rebuild). This makes each launch after a rebuild slow (~40s). Subsequent launches without rebuilding are fast (~1-2s). This only affects development.
@@ -130,7 +131,7 @@ xcodebuild -project Dictato.xcodeproj -scheme Dictato -destination 'generic/plat
 ### Architecture
 
 #### Entry Point
-- `DictatoApp.swift` — SwiftUI `@main` app. `TabView` with Home, History, Settings tabs + file import action.
+- `DictascadeApp.swift` — SwiftUI `@main` app. `TabView` with Home, History, Settings tabs + file import action.
 - `AppState.swift` — `@MainActor` singleton (`AppState.shared`). Owns FluidAudio `AsrManager`, AVAudioEngine recording, transcription history. All state flows through here.
 
 #### Recording & Transcription Flow
@@ -142,11 +143,11 @@ xcodebuild -project Dictato.xcodeproj -scheme Dictato -destination 'generic/plat
 
 #### Key Files
 ```
-ios/Dictato/
+ios/Dictascade/
 ├── App/
-│   ├── DictatoApp.swift          # App entry, TabView, file import
+│   ├── DictascadeApp.swift       # App entry, TabView, file import
 │   ├── AppState.swift            # Central state, FluidAudio lifecycle, AVAudioEngine recording
-│   └── AppIntents.swift          # Shortcuts integration (Start Recording intent)
+│   └── AppIntents.swift          # Apple Shortcuts (Start Recording, Transcribe File)
 ├── UI/
 │   ├── HomeView.swift            # Main screen: record button, mode pills, result sheet
 │   ├── HistoryView.swift         # Past transcriptions (swipe-to-delete, context menu, re-transcribe)
@@ -158,7 +159,7 @@ ios/Dictato/
 │   ├── LLMService.swift          # OpenAI/Groq post-processing (shared with macOS)
 │   └── PermissionsService.swift  # iOS microphone permission
 ├── Resources/
-│   └── Info.plist                # Mic usage, URL scheme (dictato://)
+│   └── Info.plist                # Mic usage, URL scheme (dictascade://)
 ├── Assets.xcassets/              # Asset catalog
 └── AppIcon.icon/                 # Layered app icon (Icon Composer format)
 ```
@@ -167,16 +168,19 @@ ios/Dictato/
 - **FluidAudio** — Parakeet TDT v3 CoreML model download, loading, and transcription
 
 #### Deep Links
-- `dictato://record` — opens app and starts recording with current mode
-- `dictato://record?mode=email` — starts recording with specified mode (case-insensitive, `+`/`-`/`_` match spaces)
+- `dictascade://record` — opens app and starts recording with current mode
+- `dictascade://record?mode=email` — starts recording with specified mode (case-insensitive, `+`/`-`/`_` match spaces)
 
 #### Shortcuts
-- **Start Recording** — available in Apple Shortcuts app. Opens Dictato and starts recording. Supports mode selection via parameter.
+- **Start Recording** — available in Apple Shortcuts app. Opens Dictascade and starts recording. Supports mode selection via parameter.
+- **Transcribe Audio File** — accepts an audio file, transcribes it in the background, and returns the text. Model must be loaded first by opening the app.
+
+Both shortcuts use the same intent names on macOS and iOS (`com.dictascade.app` bundle ID) so they sync across devices via iCloud.
 
 #### Data Storage
 - **Model files:** `<AppSupport>/FluidAudio/Models/` (managed by FluidAudio)
-- **Transcription history:** `<AppSupport>/Dictato/history.json`
-- **Audio cache:** `<AppSupport>/Dictato/Recordings/`
+- **Transcription history:** `<AppSupport>/Dictascade/history.json`
+- **Audio cache:** `<AppSupport>/Dictascade/Recordings/`
 
 #### UI Design
 - iOS 26 Liquid Glass effects throughout (`.glassEffect()`, `GlassEffectContainer`)
@@ -186,4 +190,4 @@ ios/Dictato/
 
 ## Logging
 
-Uses `os.Logger` with subsystem `com.dictato.app`. Categories: `AppState`, `ModelManager`, `Permissions`, `PasteService`. View in Xcode console or Console.app.
+Uses `os.Logger` with subsystem `com.dictascade.app`. Categories: `AppState`, `ModelManager`, `Permissions`, `PasteService`. View in Xcode console or Console.app.

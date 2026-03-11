@@ -3,13 +3,13 @@ import KeyboardShortcuts
 import UniformTypeIdentifiers
 
 @main
-struct DictatoApp: App {
+struct DictascadeApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @ObservedObject private var appState = AppState.shared
     @Environment(\.openWindow) private var openWindow
 
     var body: some Scene {
-        MenuBarExtra("Dictato", image: menuBarIcon) {
+        MenuBarExtra("Dictascade", image: menuBarIcon) {
             if !appState.isEngineAvailable {
                 Text("No model downloaded for current mode")
                     .foregroundStyle(.secondary)
@@ -52,7 +52,7 @@ struct DictatoApp: App {
             .keyboardShortcut("q")
         }
 
-        Window("Dictato", id: "main") {
+        Window("Dictascade", id: "main") {
             MainWindowView()
                 .toolbar(removing: .title)
         }
@@ -80,7 +80,7 @@ struct DictatoApp: App {
         NSApp.activate(ignoringOtherApps: true)
         openWindow(id: "main")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            NSApp.windows.first { $0.title == "Dictato" && !$0.className.contains("StatusBar") }?
+            NSApp.windows.first { $0.title == "Dictascade" && !$0.className.contains("StatusBar") }?
                 .orderFrontRegardless()
         }
     }
@@ -103,7 +103,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if runningInstances.count > 1 {
             // Tell the first instance to open its main window
             DistributedNotificationCenter.default().postNotificationName(
-                .init("com.dictato.openMainWindow"),
+                .init("com.dictascade.openMainWindow"),
                 object: nil
             )
             NSApp.terminate(nil)
@@ -119,7 +119,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             queue: .main
         ) { notification in
             guard let window = notification.object as? NSWindow,
-                  window.title == "Dictato",
+                  window.title == "Dictascade",
                   !window.className.contains("StatusBar") else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 NSApp.setActivationPolicy(.accessory)
@@ -128,7 +128,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Listen for second instance asking us to open the window
         DistributedNotificationCenter.default().addObserver(
-            forName: .init("com.dictato.openMainWindow"),
+            forName: .init("com.dictascade.openMainWindow"),
             object: nil,
             queue: .main
         ) { _ in

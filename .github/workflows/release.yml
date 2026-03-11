@@ -44,16 +44,16 @@ jobs:
       - name: Archive
         run: |
           cd macos
-          xcodebuild -project Dictato.xcodeproj -scheme Dictato \
+          xcodebuild -project Dictascade.xcodeproj -scheme Dictascade \
             -configuration Release \
             -destination 'platform=macOS' \
-            archive -archivePath ./build/Dictato.xcarchive
+            archive -archivePath ./build/Dictascade.xcarchive
 
       - name: Export
         run: |
           cd macos
           xcodebuild -exportArchive \
-            -archivePath ./build/Dictato.xcarchive \
+            -archivePath ./build/Dictascade.xcarchive \
             -exportPath ./build/export \
             -exportOptionsPlist ExportOptions.plist
 
@@ -63,24 +63,24 @@ jobs:
           APP_PASSWORD: ${{ secrets.APP_PASSWORD }}
         run: |
           cd macos
-          ditto -c -k --keepParent ./build/export/Dictato.app ./build/export/Dictato.zip
+          ditto -c -k --keepParent ./build/export/Dictascade.app ./build/export/Dictascade.zip
 
-          xcrun notarytool submit ./build/export/Dictato.zip \
+          xcrun notarytool submit ./build/export/Dictascade.zip \
             --apple-id "$APPLE_ID" \
             --team-id "H7B584W2D6" \
             --password "$APP_PASSWORD" \
             --wait
 
-          xcrun stapler staple ./build/export/Dictato.app
+          xcrun stapler staple ./build/export/Dictascade.app
 
-          rm ./build/export/Dictato.zip
-          ditto -c -k --keepParent ./build/export/Dictato.app ./build/export/Dictato.zip
+          rm ./build/export/Dictascade.zip
+          ditto -c -k --keepParent ./build/export/Dictascade.app ./build/export/Dictascade.zip
 
       - name: Upload to release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="${{ github.event.release.tag_name }}"
-          mv ./macos/build/export/Dictato.zip "./macos/build/export/Dictato-${TAG}.zip"
+          mv ./macos/build/export/Dictascade.zip "./macos/build/export/Dictascade-${TAG}.zip"
           gh release upload "$TAG" \
-            "./macos/build/export/Dictato-${TAG}.zip"
+            "./macos/build/export/Dictascade-${TAG}.zip"

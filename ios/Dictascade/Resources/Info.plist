@@ -24,15 +24,15 @@
     <key>UILaunchScreen</key>
     <dict/>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Dictato needs microphone access to record and transcribe your speech.</string>
+    <string>Dictascade needs microphone access to record and transcribe your speech.</string>
     <key>CFBundleURLTypes</key>
     <array>
         <dict>
             <key>CFBundleURLName</key>
-            <string>com.dictato.ios</string>
+            <string>com.dictascade.app</string>
             <key>CFBundleURLSchemes</key>
             <array>
-                <string>dictato</string>
+                <string>dictascade</string>
             </array>
         </dict>
     </array>

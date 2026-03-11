@@ -2,7 +2,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 @main
-struct DictatoApp: App {
+struct DictascadeApp: App {
     @StateObject private var appState = AppState.shared
 
     var body: some Scene {
@@ -13,7 +13,7 @@ struct DictatoApp: App {
                     await appState.initializeASR()
                 }
                 .onOpenURL { url in
-                    guard url.scheme == "dictato", url.host == "record" else { return }
+                    guard url.scheme == "dictascade", url.host == "record" else { return }
                     let mode = URLComponents(url: url, resolvingAgainstBaseURL: false)?
                         .queryItems?.first(where: { $0.name == "mode" })?.value
                     appState.pendingDeepLink = .record(mode: mode)

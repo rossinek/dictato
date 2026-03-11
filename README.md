@@ -1,4 +1,4 @@
-# Dictato
+# Dictascade
 
 Local speech-to-text for macOS and iOS. Records speech and transcribes locally — no cloud transcription. Optionally post-processes transcriptions via OpenAI or Groq.
 
@@ -23,7 +23,7 @@ brew install xcodegen
 ```bash
 cd macos
 xcodegen generate
-open Dictato.xcodeproj
+open Dictascade.xcodeproj
 ```
 
 Build and run from Xcode (Cmd+R).
@@ -33,7 +33,7 @@ Build and run from Xcode (Cmd+R).
 ```bash
 cd ios
 xcodegen generate
-open Dictato.xcodeproj
+open Dictascade.xcodeproj
 ```
 
 Build and run on a device from Xcode.
@@ -54,10 +54,10 @@ On first launch, grant the following in **System Settings > Privacy & Security**
 
 ## iOS Deep Links
 
-- `dictato://record` — open app and start recording
-- `dictato://record?mode=email` — start recording with a specific mode
+- `dictascade://record` — open app and start recording
+- `dictascade://record?mode=email` — start recording with a specific mode
 
-The app also provides a **Start Recording** shortcut in the Apple Shortcuts app with mode selection.
+The app also provides **Start Recording** and **Transcribe Audio File** shortcuts in the Apple Shortcuts app, synced across macOS and iOS.
 
 ## Scripts
 
@@ -77,7 +77,7 @@ APPLE_ID="your@email.com" APP_PASSWORD="your-app-specific-password" ./scripts/no
 
 The app-specific password can be generated at [account.apple.com](https://account.apple.com) under Sign-In and Security → App-Specific Passwords.
 
-Output: `build/export/Dictato.zip`
+Output: `build/export/Dictascade.zip`
 
 ## Notes
 

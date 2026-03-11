@@ -1,9 +1,14 @@
 import AVFoundation
+import FluidAudio
 import Foundation
 import os
 import SwiftUI
 
-private let log = Logger(subsystem: "com.dictato.app", category: "AppState")
+private let log = Logger(subsystem: "com.dictascade.app", category: "AppState")
+
+enum DeepLink: Equatable {
+    case record(mode: String?)
+}
 
 @MainActor
 class AppState: ObservableObject {
@@ -12,7 +17,8 @@ class AppState: ObservableObject {
     @Published var isRecording = false
     @Published var isPaused = false
     @Published var isTranscribing = false
-    @Published var isModelLoading = false
+    @Published var isModelLoaded = false
+    @Published var modelLoadingProgress: String = "Starting..."
     @Published var transcriptionHistory: [Transcription] = []
     @Published var modes: [TranscriptionMode] = []
     @Published var selectedModeIndex: Int = 0
@@ -20,18 +26,15 @@ class AppState: ObservableObject {
     @Published var isError = false
     @Published var reTranscribingID: UUID?
     @Published var isFileTranscribing = false
-    @Published var mainWindowTab: MainWindowTab = .history
-    @Published var shouldOpenMainWindow = false
-    @Published var audioLevels: [Float] = []
-
-    private static let audioLevelBarCount = 48
+    @Published var lastTranscriptionResult: Transcription?
+    @Published var failedRecordingURL: URL?
+    @Published var pendingDeepLink: DeepLink?
 
     var selectedMode: TranscriptionMode {
         modes[min(selectedModeIndex, modes.count - 1)]
     }
 
-    let modelManager = ModelManager()
-
+    private var asrManager: AsrManager?
     private var audioEngine: AVAudioEngine?
     private var audioSamples: [Float] = []
     private var failedSamples: [Float] = []
@@ -44,95 +47,90 @@ class AppState: ObservableObject {
         cleanupOldRecordings()
     }
 
-    #if DEBUG
-    static func preview() -> AppState {
+    /// For SwiftUI previews only
+    static func preview(
+        isModelLoaded: Bool = true,
+        isRecording: Bool = false,
+        isPaused: Bool = false,
+        isTranscribing: Bool = false,
+        isPostProcessing: Bool = false,
+        isError: Bool = false
+    ) -> AppState {
         let state = AppState()
-        state.modes = [
-            .default,
-            TranscriptionMode(id: UUID(), name: "Email", language: "en", prompt: "Fix grammar"),
-        ]
-        // Create a dummy audio file so hasAudio is true for preview
-        let dummyFileName = "preview-audio.wav"
-        let dummyURL = state.recordingsDirectoryURL.appendingPathComponent(dummyFileName)
-        if !FileManager.default.fileExists(atPath: dummyURL.path) {
-            let header = Data([
-                0x52,0x49,0x46,0x46, 0x24,0x00,0x00,0x00, 0x57,0x41,0x56,0x45,
-                0x66,0x6D,0x74,0x20, 0x10,0x00,0x00,0x00, 0x01,0x00,0x01,0x00,
-                0x80,0x3E,0x00,0x00, 0x00,0x7D,0x00,0x00, 0x02,0x00,0x10,0x00,
-                0x64,0x61,0x74,0x61, 0x00,0x00,0x00,0x00,
-            ])
-            try? header.write(to: dummyURL)
-        }
-
+        state.isModelLoaded = isModelLoaded
+        state.isRecording = isRecording
+        state.isPaused = isPaused
+        state.isTranscribing = isTranscribing
+        state.isPostProcessing = isPostProcessing
+        state.isError = isError
+        state.modes = [TranscriptionMode.default, TranscriptionMode(id: UUID(), name: "Email", language: "en", prompt: "Fix grammar")]
         state.transcriptionHistory = [
-            Transcription(
-                text: "Hey, remind me to pick up groceries on the way home tonight. Also, can you check if the dry cleaning is ready?",
-                postProcessedText: "Remind me to pick up groceries on the way home tonight. Also, check if the dry cleaning is ready.",
-                modeName: "Default",
-                audioFileName: dummyFileName
-            ),
-            Transcription(
-                text: "The quarterly report shows a 15% increase in revenue compared to last year, driven primarily by expansion into new markets.",
-                modeName: "Email"
-            ),
-            Transcription(text: "Quick test recording", modeName: "Default"),
+            Transcription(text: "Hey, remind me to pick up groceries on the way home tonight. Also, can you check if the dry cleaning is ready?", postProcessedText: "Remind me to pick up groceries on the way home tonight. Also, check if the dry cleaning is ready.", modeName: "Default"),
+            {
+                let fileName = "preview-audio.wav"
+                let url = state.recordingsDirectoryURL.appendingPathComponent(fileName)
+                if !FileManager.default.fileExists(atPath: url.path) {
+                    // Create a tiny valid WAV so audioFileURL(for:) finds it
+                    let header = Data([
+                        0x52,0x49,0x46,0x46, 0x24,0x00,0x00,0x00, 0x57,0x41,0x56,0x45,
+                        0x66,0x6D,0x74,0x20, 0x10,0x00,0x00,0x00, 0x01,0x00,0x01,0x00,
+                        0x80,0x3E,0x00,0x00, 0x00,0x7D,0x00,0x00, 0x02,0x00,0x10,0x00,
+                        0x64,0x61,0x74,0x61, 0x00,0x00,0x00,0x00,
+                    ])
+                    try? header.write(to: url)
+                }
+                return Transcription(text: "The quick brown fox jumps over the lazy dog. This is a test of the transcription system.", modeName: "Email", audioFileName: fileName)
+            }(),
+            Transcription(text: "Meeting notes from today: we discussed the Q2 roadmap and agreed to prioritize the mobile app launch.", postProcessedText: nil, modeName: "Default"),
         ]
         return state
     }
-    #endif
 
     func selectMode(index: Int) {
         guard index >= 0, index < modes.count else { return }
         selectedModeIndex = index
         log.info("Selected mode: \(self.modes[index].name)")
-
-        // If recording, preload the new mode's engine (cancels previous preload)
-        if isRecording || isPaused {
-            modelManager.preload(modes[index].transcriptionEngine)
-        }
     }
 
     func requestPermissions() async {
         log.info("Checking permissions...")
-
         let micGranted = await PermissionsService.requestMicrophoneAccess()
         log.info("Microphone access: \(micGranted)")
+    }
 
-        if !PermissionsService.hasAccessibilityAccess {
-            _ = await PermissionsService.requestAccessibilityAccess()
-            log.info("Accessibility access requested")
+    func initializeASR() async {
+        log.info("Starting FluidAudio initialization")
+        do {
+            modelLoadingProgress = "Downloading model..."
+            log.info("Downloading model...")
+
+            let models = try await AsrModels.downloadAndLoad(version: .v3)
+            modelLoadingProgress = "Loading model..."
+            log.info("Model downloaded, initializing ASR manager...")
+
+            let manager = AsrManager(config: .default)
+            try await manager.initialize(models: models)
+
+            self.asrManager = manager
+            isModelLoaded = true
+            modelLoadingProgress = "Ready"
+            log.info("Model loaded successfully")
+        } catch {
+            modelLoadingProgress = "Model failed: \(error.localizedDescription)"
+            log.error("FluidAudio init failed: \(error)")
         }
     }
 
-    /// Whether the current mode's transcription engine is downloaded and ready
-    var isEngineAvailable: Bool {
-        modelManager.isDownloaded(selectedMode.transcriptionEngine)
-    }
+    // MARK: - Recording
 
-    func toggleRecording() {
-        if isPaused {
-            log.info("Resuming recording")
-            resumeRecording()
-        } else if isRecording {
-            log.info("Stopping recording")
-            stopAndTranscribe()
-        } else {
-            log.info("Starting recording")
-            startRecording()
-        }
-    }
-
-    // MARK: - Recording (AVAudioEngine)
-
-    private func startRecording() {
-        guard !isTranscribing else {
-            log.warning("Cannot start recording: transcribing=\(self.isTranscribing)")
+    func startRecording() {
+        guard asrManager != nil, isModelLoaded, !isTranscribing else {
+            log.warning("Cannot start recording: model=\(self.isModelLoaded), transcribing=\(self.isTranscribing)")
             return
         }
 
         do {
             audioSamples = []
-            audioLevels = []
             let engine = AVAudioEngine()
             let inputNode = engine.inputNode
             let recordingFormat = inputNode.outputFormat(forBus: 0)
@@ -170,32 +168,18 @@ class AppState: ObservableObject {
                     samples = Array(UnsafeBufferPointer(start: buffer.floatChannelData![0], count: Int(buffer.frameLength)))
                 }
 
-                // Compute RMS amplitude for this buffer
-                let rms: Float = samples.isEmpty ? 0 : {
-                    let sumOfSquares = samples.reduce(Float(0)) { $0 + $1 * $1 }
-                    return sqrt(sumOfSquares / Float(samples.count))
-                }()
-
                 DispatchQueue.main.async {
                     self?.audioSamples.append(contentsOf: samples)
-
-                    // Update rolling audio levels for visualization
-                    if let self {
-                        self.audioLevels.append(rms)
-                        if self.audioLevels.count > Self.audioLevelBarCount {
-                            self.audioLevels.removeFirst(self.audioLevels.count - Self.audioLevelBarCount)
-                        }
-                    }
                 }
             }
 
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.record, mode: .measurement)
+            try session.setActive(true)
             try engine.start()
             audioEngine = engine
             isRecording = true
             log.info("Recording started")
-
-            // Start loading the model in the background while recording
-            modelManager.preload(selectedMode.transcriptionEngine)
         } catch {
             log.error("Failed to start recording: \(error)")
         }
@@ -230,68 +214,7 @@ class AppState: ObservableObject {
         }
     }
 
-    func cancelTranscription() {
-        guard isTranscribing || isPostProcessing else { return }
-        transcriptionTask?.cancel()
-        transcriptionTask = nil
-        isTranscribing = false
-        isModelLoading = false
-        isPostProcessing = false
-        log.info("Transcription cancelled")
-    }
-
-    func discardRecording() {
-        guard isPaused || isRecording else { return }
-        if let engine = audioEngine {
-            engine.inputNode.removeTap(onBus: 0)
-            engine.stop()
-            audioEngine = nil
-        }
-        modelManager.cancelPreload()
-        modelManager.unloadCurrent()
-        audioSamples = []
-        isPaused = false
-        isRecording = false
-        log.info("Recording discarded")
-    }
-
-    func dismissError() {
-        isError = false
-        failedSamples = []
-        log.info("Error dismissed")
-    }
-
-    func saveFailedRecording() {
-        guard !failedSamples.isEmpty else { return }
-        let samples = failedSamples
-
-        let savePanel = NSSavePanel()
-        savePanel.allowedContentTypes = [.wav]
-        savePanel.nameFieldStringValue = "recording-\(Int(Date().timeIntervalSince1970)).wav"
-
-        guard savePanel.runModal() == .OK, let url = savePanel.url else { return }
-
-        let sampleRate: Double = 16000
-        let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
-        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(samples.count)) else {
-            log.error("Failed to create audio buffer")
-            return
-        }
-        buffer.frameLength = AVAudioFrameCount(samples.count)
-        memcpy(buffer.floatChannelData![0], samples, samples.count * MemoryLayout<Float>.size)
-
-        do {
-            let file = try AVAudioFile(forWriting: url, settings: format.settings)
-            try file.write(from: buffer)
-            log.info("Recording saved to \(url.path)")
-        } catch {
-            log.error("Failed to save recording: \(error)")
-        }
-
-        dismissError()
-    }
-
-    private func stopAndTranscribe() {
+    func stopAndTranscribe() {
         guard let engine = audioEngine else { return }
 
         engine.inputNode.removeTap(onBus: 0)
@@ -304,22 +227,13 @@ class AppState: ObservableObject {
         let samples = audioSamples
         let mode = selectedMode
         audioSamples = []
-        log.info("Transcribing \(samples.count) samples, engine: \(mode.transcriptionEngine.displayName), language: \(mode.language ?? "auto")")
+        log.info("Transcribing \(samples.count) samples, language: \(mode.language ?? "auto")")
 
         transcriptionTask = Task {
             do {
-                // Wait for model to finish loading (started when recording began)
-                isModelLoading = true
-                try await modelManager.awaitLoad()
-                isModelLoading = false
-
-                let text = try await modelManager.transcribeLoaded(
-                    samples: samples,
-                    language: mode.language
-                )
-
-                // Unload model to free RAM
-                modelManager.unloadCurrent()
+                guard let asrManager else { return }
+                let result = try await asrManager.transcribe(samples, source: .system)
+                let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
 
                 log.info("Transcription result: \(text)")
 
@@ -354,30 +268,78 @@ class AppState: ObservableObject {
                     transcriptionHistory.insert(transcription, at: 0)
                     cleanupOldRecordings()
                     saveHistory()
-                    PasteService.paste(text: processedText ?? text)
-                    NSSound(named: "Funk")?.play()
+                    lastTranscriptionResult = transcription
                 } else {
-                    modelManager.unloadCurrent()
                     failedSamples = samples
                     isTranscribing = false
                     isError = true
-                    NSSound(named: "Sosumi")?.play()
                     log.warning("Transcription returned empty text")
                 }
             } catch {
                 log.error("Transcription failed: \(error)")
-                modelManager.unloadCurrent()
                 failedSamples = samples
                 isTranscribing = false
-                isModelLoading = false
                 isPostProcessing = false
                 isError = true
-                NSSound(named: "Sosumi")?.play()
-                return
             }
 
             isTranscribing = false
             isPostProcessing = false
+        }
+    }
+
+    func cancelTranscription() {
+        guard isTranscribing || isPostProcessing else { return }
+        transcriptionTask?.cancel()
+        transcriptionTask = nil
+        isTranscribing = false
+        isPostProcessing = false
+        log.info("Transcription cancelled")
+    }
+
+    func discardRecording() {
+        guard isPaused || isRecording else { return }
+        if let engine = audioEngine {
+            engine.inputNode.removeTap(onBus: 0)
+            engine.stop()
+            audioEngine = nil
+        }
+        audioSamples = []
+        isPaused = false
+        isRecording = false
+        log.info("Recording discarded")
+    }
+
+    func dismissError() {
+        isError = false
+        failedSamples = []
+        failedRecordingURL = nil
+        log.info("Error dismissed")
+    }
+
+    func saveFailedRecording() {
+        guard !failedSamples.isEmpty else { return }
+        let samples = failedSamples
+
+        let tempDir = FileManager.default.temporaryDirectory
+        let url = tempDir.appendingPathComponent("recording-\(Int(Date().timeIntervalSince1970)).wav")
+
+        let sampleRate: Double = 16000
+        let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(samples.count)) else {
+            log.error("Failed to create audio buffer")
+            return
+        }
+        buffer.frameLength = AVAudioFrameCount(samples.count)
+        memcpy(buffer.floatChannelData![0], samples, samples.count * MemoryLayout<Float>.size)
+
+        do {
+            let file = try AVAudioFile(forWriting: url, settings: format.settings)
+            try file.write(from: buffer)
+            failedRecordingURL = url
+            log.info("Recording saved to \(url.path)")
+        } catch {
+            log.error("Failed to save recording: \(error)")
         }
     }
 
@@ -421,21 +383,15 @@ class AppState: ObservableObject {
 
     /// Transcribe an audio file and return the result text (for AppIntents / Shortcuts).
     func transcribeFileAsync(url: URL, mode: TranscriptionMode) async throws -> String {
-        guard modelManager.isDownloaded(mode.transcriptionEngine) else {
-            throw ModelError.notDownloaded(mode.transcriptionEngine)
-        }
         guard let samples = loadAudioFromFile(url: url) else {
             throw TranscriptionError.fileLoadFailed
         }
+        guard let asrManager else {
+            throw TranscriptionError.modelNotLoaded
+        }
 
-        modelManager.preload(mode.transcriptionEngine)
-        try await modelManager.awaitLoad()
-        let text = try await modelManager.transcribeLoaded(
-            samples: samples,
-            language: mode.language
-        )
-        modelManager.unloadCurrent()
-
+        let result = try await asrManager.transcribe(samples, source: .system)
+        let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else {
             throw TranscriptionError.emptyResult
         }
@@ -465,22 +421,19 @@ class AppState: ObservableObject {
     }
 
     enum TranscriptionError: LocalizedError {
-        case fileLoadFailed, emptyResult
+        case fileLoadFailed, modelNotLoaded, emptyResult
 
         var errorDescription: String? {
             switch self {
             case .fileLoadFailed: return "Failed to load audio file"
+            case .modelNotLoaded: return "Transcription model is not loaded"
             case .emptyResult: return "Transcription returned empty text"
             }
         }
     }
 
     func transcribeFile(url: URL, mode: TranscriptionMode, completion: @escaping () -> Void) {
-        guard !isRecording, !isTranscribing, !isFileTranscribing else { return }
-        guard modelManager.isDownloaded(mode.transcriptionEngine) else {
-            log.error("Engine not downloaded: \(mode.transcriptionEngine.displayName)")
-            return
-        }
+        guard !isRecording, !isTranscribing, !isFileTranscribing, isModelLoaded else { return }
         guard let samples = loadAudioFromFile(url: url) else {
             log.error("Failed to load audio from file: \(url.path)")
             return
@@ -496,13 +449,9 @@ class AppState: ObservableObject {
             }
 
             do {
-                modelManager.preload(mode.transcriptionEngine)
-                try await modelManager.awaitLoad()
-                let text = try await modelManager.transcribeLoaded(
-                    samples: samples,
-                    language: mode.language
-                )
-                modelManager.unloadCurrent()
+                guard let asrManager else { return }
+                let result = try await asrManager.transcribe(samples, source: .system)
+                let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
 
                 guard !text.isEmpty else {
                     log.warning("File transcription returned empty text")
@@ -533,7 +482,6 @@ class AppState: ObservableObject {
                 saveHistory()
                 log.info("File transcription complete: \(text.prefix(50))...")
             } catch {
-                modelManager.unloadCurrent()
                 log.error("File transcription failed: \(error)")
             }
         }
@@ -543,7 +491,7 @@ class AppState: ObservableObject {
 
     var recordingsDirectoryURL: URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let dir = appSupport.appendingPathComponent("Dictato/Recordings", isDirectory: true)
+        let dir = appSupport.appendingPathComponent("Dictascade/Recordings", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }
@@ -625,10 +573,6 @@ class AppState: ObservableObject {
 
     func reTranscribe(transcriptionID: UUID, withMode mode: TranscriptionMode) {
         guard !isRecording, !isTranscribing, !isPaused else { return }
-        guard modelManager.isDownloaded(mode.transcriptionEngine) else {
-            log.error("Engine not downloaded for re-transcription: \(mode.transcriptionEngine.displayName)")
-            return
-        }
         guard let index = transcriptionHistory.firstIndex(where: { $0.id == transcriptionID }),
               let audioFileName = transcriptionHistory[index].audioFileName,
               let samples = loadAudioSamples(fileName: audioFileName) else { return }
@@ -641,13 +585,9 @@ class AppState: ObservableObject {
             }
 
             do {
-                modelManager.preload(mode.transcriptionEngine)
-                try await modelManager.awaitLoad()
-                let text = try await modelManager.transcribeLoaded(
-                    samples: samples,
-                    language: mode.language
-                )
-                modelManager.unloadCurrent()
+                guard let asrManager else { return }
+                let result = try await asrManager.transcribe(samples, source: .system)
+                let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
 
                 guard !text.isEmpty else { return }
 
@@ -672,7 +612,6 @@ class AppState: ObservableObject {
                 saveHistory()
                 log.info("Re-transcribed with mode: \(mode.name)")
             } catch {
-                modelManager.unloadCurrent()
                 log.error("Re-transcription failed: \(error)")
             }
         }
@@ -682,7 +621,7 @@ class AppState: ObservableObject {
 
     private var historyFileURL: URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let dir = appSupport.appendingPathComponent("Dictato", isDirectory: true)
+        let dir = appSupport.appendingPathComponent("Dictascade", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent("history.json")
     }
@@ -711,7 +650,7 @@ class AppState: ObservableObject {
 
     private var modesFileURL: URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let dir = appSupport.appendingPathComponent("Dictato", isDirectory: true)
+        let dir = appSupport.appendingPathComponent("Dictascade", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent("modes.json")
     }

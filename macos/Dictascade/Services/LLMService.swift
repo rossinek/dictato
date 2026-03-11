@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: "com.dictato.app", category: "LLMService")
+private let log = Logger(subsystem: "com.dictascade.app", category: "LLMService")
 
 enum LLMProvider: String, Codable, CaseIterable {
     case none
@@ -10,7 +10,7 @@ enum LLMProvider: String, Codable, CaseIterable {
 
     var displayName: String {
         switch self {
-        case .none: "None"
+        case .none: "No post-processing"
         case .openai: "OpenAI"
         case .groq: "Groq"
         }

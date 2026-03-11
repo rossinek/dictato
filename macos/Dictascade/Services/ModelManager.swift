@@ -3,7 +3,7 @@ import FluidAudio
 import os
 import WhisperKit
 
-private let log = Logger(subsystem: "com.dictato.app", category: "ModelManager")
+private let log = Logger(subsystem: "com.dictascade.app", category: "ModelManager")
 
 enum TranscriptionEngine: String, Codable, CaseIterable, Identifiable {
     case whisperKit
@@ -370,7 +370,7 @@ class ModelManager: ObservableObject {
 
     private var appSupportDirectory: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("Dictato", isDirectory: true)
+            .appendingPathComponent("Dictascade", isDirectory: true)
     }
 
     private var whisperKitDownloadBase: URL {

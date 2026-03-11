@@ -2,7 +2,7 @@ import AVFoundation
 import AppKit
 import os
 
-private let log = Logger(subsystem: "com.dictato.app", category: "Permissions")
+private let log = Logger(subsystem: "com.dictascade.app", category: "Permissions")
 
 enum PermissionsService {
 
@@ -33,7 +33,7 @@ enum PermissionsService {
     private static func showMicrophoneAlert() {
         let alert = NSAlert()
         alert.messageText = "Microphone Access Required"
-        alert.informativeText = "Dictato needs microphone access to record and transcribe your speech.\n\nPlease enable it in System Settings → Privacy & Security → Microphone."
+        alert.informativeText = "Dictascade needs microphone access to record and transcribe your speech.\n\nPlease enable it in System Settings → Privacy & Security → Microphone."
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Open System Settings")
         alert.addButton(withTitle: "Cancel")

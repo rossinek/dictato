@@ -6,13 +6,22 @@ struct HomeView: View {
     var body: some View {
         VStack(spacing: 12) {
             VStack(spacing: 2) {
-                DictatoIcon()
+                DictascadeIcon()
                     .frame(width: 36, height: 36)
                     .foregroundStyle(.primary.opacity(0.4))
-                Text("dictato")
-                    .font(.system(size: 22, weight: .semibold, design: .monospaced))
-                    .tracking(4)
-                    .textCase(.lowercase)
+              VStack {
+                Text("dicta")
+                  .font(.system(size: 22, weight: .semibold, design: .monospaced))
+                  .tracking(4)
+                  .textCase(.lowercase)
+                  .padding(.trailing, 16)
+
+                Text("scade")
+                  .font(.system(size: 22, weight: .semibold, design: .monospaced))
+                  .tracking(4)
+                  .textCase(.lowercase)
+                  .padding(.leading, 18)
+              }
             }
             .padding(.top, 20)
 
@@ -339,9 +348,9 @@ struct ShareSheet: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
-// MARK: - Dictato Icon
+// MARK: - Dictascade Icon
 
-private struct DictatoIcon: Shape {
+private struct DictascadeIcon: Shape {
     func path(in rect: CGRect) -> Path {
         let sx = rect.width / 20
         let sy = rect.height / 20

@@ -15,6 +15,6 @@
     <key>CFBundleVersion</key>
     <string>$(CURRENT_PROJECT_VERSION)</string>
 <key>NSMicrophoneUsageDescription</key>
-    <string>Dictato needs microphone access to record and transcribe your speech.</string>
+    <string>Dictascade needs microphone access to record and transcribe your speech.</string>
 </dict>
 </plist>

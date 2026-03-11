@@ -2,7 +2,7 @@ import AppKit
 import CoreGraphics
 import os
 
-private let log = Logger(subsystem: "com.dictato.app", category: "PasteService")
+private let log = Logger(subsystem: "com.dictascade.app", category: "PasteService")
 
 enum PasteService {
     static func paste(text: String) {

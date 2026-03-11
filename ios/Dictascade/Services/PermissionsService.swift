@@ -1,7 +1,7 @@
 import AVFoundation
 import os
 
-private let log = Logger(subsystem: "com.dictato.app", category: "Permissions")
+private let log = Logger(subsystem: "com.dictascade.app", category: "Permissions")
 
 enum PermissionsService {
     static var hasMicrophoneAccess: Bool {

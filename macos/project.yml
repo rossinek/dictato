@@ -1,6 +1,6 @@
-name: Dictato
+name: Dictascade
 options:
-  bundleIdPrefix: com.dictato
+  bundleIdPrefix: com.dictascade
   deploymentTarget:
     macOS: "26.0"
   xcodeVersion: "26.0"
@@ -17,16 +17,16 @@ packages:
     from: "2.0.0"
 
 targets:
-  Dictato:
+  Dictascade:
     type: application
     platform: macOS
     sources:
-      - Dictato
+      - Dictascade
     settings:
       base:
-        INFOPLIST_FILE: Dictato/Resources/Info.plist
-        CODE_SIGN_ENTITLEMENTS: Dictato/Resources/Dictato.entitlements
-        PRODUCT_BUNDLE_IDENTIFIER: com.dictato.ios
+        INFOPLIST_FILE: Dictascade/Resources/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Dictascade/Resources/Dictascade.entitlements
+        PRODUCT_BUNDLE_IDENTIFIER: com.dictascade.app
         MARKETING_VERSION: "0.3.0"
         CURRENT_PROJECT_VERSION: 1
         SWIFT_VERSION: "5.9"

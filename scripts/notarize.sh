@@ -20,10 +20,10 @@ TEAM_ID="H7B584W2D6"
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PROJECT_DIR="$REPO_DIR/macos"
 BUILD_DIR="$PROJECT_DIR/build"
-ARCHIVE_PATH="$BUILD_DIR/Dictato.xcarchive"
+ARCHIVE_PATH="$BUILD_DIR/Dictascade.xcarchive"
 EXPORT_PATH="$BUILD_DIR/export"
-APP_PATH="$EXPORT_PATH/Dictato.app"
-ZIP_PATH="$EXPORT_PATH/Dictato.zip"
+APP_PATH="$EXPORT_PATH/Dictascade.app"
+ZIP_PATH="$EXPORT_PATH/Dictascade.zip"
 
 rm -rf "$BUILD_DIR"
 
@@ -32,7 +32,7 @@ cd "$PROJECT_DIR"
 xcodegen generate
 
 echo "==> Archiving..."
-xcodebuild -project Dictato.xcodeproj -scheme Dictato \
+xcodebuild -project Dictascade.xcodeproj -scheme Dictascade \
   -configuration Release \
   -destination 'platform=macOS' \
   archive -archivePath "$ARCHIVE_PATH" \
@@ -64,9 +64,9 @@ ditto -c -k --keepParent "$APP_PATH" "$ZIP_PATH"
 
 if [ "$INSTALL" = true ]; then
   echo "==> Installing to /Applications..."
-  rm -rf /Applications/Dictato.app
-  cp -R "$APP_PATH" /Applications/Dictato.app
-  echo "==> Done! Installed to /Applications/Dictato.app"
+  rm -rf /Applications/Dictascade.app
+  cp -R "$APP_PATH" /Applications/Dictascade.app
+  echo "==> Done! Installed to /Applications/Dictascade.app"
 else
   echo "==> Done! Distributable at: $ZIP_PATH"
 fi
