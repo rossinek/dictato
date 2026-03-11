@@ -21,7 +21,8 @@ struct RecordingOverlay: View {
             // Main pill
             VStack(spacing: 6) {
                 if isRecording {
-                    AudioVisualizerView(levels: appState.audioLevels)
+                    // Placeholder to reserve height for the visualizer
+                    Color.clear
                         .frame(minWidth: 180)
                         .frame(height: 19)
                 } else {
@@ -61,6 +62,14 @@ struct RecordingOverlay: View {
             .padding(.bottom, 14)
             .frame(minWidth: 250)
             .fixedSize()
+            .overlay(alignment: .top) {
+                if isRecording {
+                    AudioVisualizerView(levels: appState.audioLevels)
+                        .frame(height: 19)
+                        .padding(.top, 20)
+                }
+            }
+            .clipShape(.capsule)
             .overlay(GeometryReader { geo in
                 Color.clear.preference(key: PillSizeKey.self, value: geo.size)
             })
@@ -156,96 +165,81 @@ struct RecordingOverlay: View {
 
 // MARK: - Audio Visualizer
 
+private struct AudioBar: Identifiable {
+    let id = UUID()
+    let level: Float
+    let birthTime: Date
+}
+
 private struct AudioVisualizerView: View {
     let levels: [Float]
-    private let barSpacing: CGFloat = 2
     private let barWidth: CGFloat = 2.5
-    private let minBarHeight: CGFloat = 2.5 // matches barWidth for circular dot
-    private let referenceLevel: Float = 0.12
+    private let minBarHeight: CGFloat = 2.5
+    private let travelDuration: TimeInterval = 3.0 // seconds to cross the view
 
-    @State private var currentLevels: [Float] = []
-    @State private var lastUpdateTime: Date = .now
-    @State private var averageInterval: TimeInterval = 0.1
-    @State private var smoothedPeak: Float = 0.01
-    @State private var noiseFloor: Float = 0
+    @State private var bars: [AudioBar] = []
 
     var body: some View {
         GeometryReader { geo in
-            let barCount = max(1, Int(geo.size.width / (barWidth + barSpacing)))
             let maxHeight = geo.size.height
+            let width = geo.size.width
 
             TimelineView(.animation) { context in
-                let interpolated = interpolatedLevels(at: context.date, barCount: barCount)
+                let now = context.date
 
-                HStack(spacing: barSpacing) {
-                    ForEach(0..<interpolated.count, id: \.self) { i in
-                        let level = interpolated[i]
-                        let barHeight = max(minBarHeight, CGFloat(level) * maxHeight)
+                Canvas { ctx, size in
+                    for bar in bars {
+                        let age = now.timeIntervalSince(bar.birthTime)
+                        let progress = age / travelDuration
+                        guard progress >= 0 && progress <= 1 else { continue }
 
-                        RoundedRectangle(cornerRadius: barWidth / 2)
-                            .fill(.white.opacity(0.3 + Double(level) * 0.7))
-                            .frame(width: barWidth, height: barHeight)
+                        // Ease-in-out: fast at edges, slow in middle
+                        let eased = easeInOut(Float(progress))
+                        let x = width * (1 - CGFloat(eased)) - barWidth / 2
+                        let barHeight = max(minBarHeight, CGFloat(bar.level) * maxHeight)
+                        let y = (maxHeight - barHeight) / 2
+
+                        let rect = CGRect(x: x, y: y, width: barWidth, height: barHeight)
+                        let path = Path(roundedRect: rect, cornerRadius: barWidth / 2)
+                        ctx.fill(path, with: .color(.white.opacity(0.3 + Double(bar.level) * 0.7)))
                     }
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(width: width, height: maxHeight)
             }
         }
         .onChange(of: levels) {
             let now = Date.now
-            let interval = now.timeIntervalSince(lastUpdateTime)
-            if interval > 0.01 && interval < 1.0 {
-                // Smooth the interval estimate
-                averageInterval = averageInterval * 0.7 + interval * 0.3
+
+            // Spawn one bar for the newest sample
+            if let last = levels.last {
+                bars.append(AudioBar(level: normalizeLevel(last), birthTime: now))
             }
-            lastUpdateTime = now
-            currentLevels = normalizedLevels()
+
+            // Prune bars that have exited
+            bars.removeAll { now.timeIntervalSince($0.birthTime) > travelDuration }
         }
     }
 
-    /// Each frame: blend bar[i] toward bar[i+1] based on time progress between data updates
-    private func interpolatedLevels(at date: Date, barCount: Int) -> [Float] {
-        let source = currentLevels
-        guard !source.isEmpty else { return Array(repeating: 0, count: barCount) }
-
-        let elapsed = date.timeIntervalSince(lastUpdateTime)
-        let t = Float(min(max(elapsed / averageInterval, 0), 1))
-
-        // Blend each bar toward its right neighbor
-        var result = [Float](repeating: 0, count: source.count)
-        for i in 0..<source.count {
-            if i == source.count - 1 {
-                result[i] = source[i]
-            } else {
-                result[i] = source[i] * (1 - t) + source[i + 1] * t
-            }
-        }
-
-        if result.count > barCount {
-            return Array(result.suffix(barCount))
-        }
-        return result
-    }
-
-    private func normalizedLevels() -> [Float] {
-        let sourceCount = 48
-        var source: [Float]
-        if levels.count < sourceCount {
-            source = Array(repeating: Float(0), count: sourceCount - levels.count) + levels
+    /// Slow in middle, fast at edges (inverted ease-in-out)
+    private func easeInOut(_ t: Float) -> Float {
+        if t < 0.5 {
+            // Fast start, decelerating
+            let s = 1 - 2 * t
+            return 0.5 * (1 - s * s * s)
         } else {
-            source = Array(levels.suffix(sourceCount))
+            // Accelerating to fast end
+            let s = 2 * t - 1
+            return 0.5 + 0.5 * s * s * s
         }
+    }
 
-        // Fixed dB scale — no normalization needed
-        let dbFloor: Float = -50  // silence threshold
-        let dbCeil: Float = -10   // loud speech
-        let dbRange = dbCeil - dbFloor
-
-        return source.map { level in
-            guard level > 0 else { return Float(0) }
-            let db = 20 * log10(level)
-            let normalized = (db - dbFloor) / dbRange
-            return max(0, min(1, normalized))
-        }
+    private func normalizeLevel(_ level: Float) -> Float {
+        guard level > 0 else { return 0 }
+        let dbFloor: Float = -50
+        let dbCeil: Float = -10
+        let db = 20 * log10(level)
+        let normalized = (db - dbFloor) / (dbCeil - dbFloor)
+        return max(0, min(1, normalized))
     }
 }
 
