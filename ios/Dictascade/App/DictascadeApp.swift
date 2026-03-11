@@ -13,10 +13,19 @@ struct DictascadeApp: App {
                     await appState.initializeASR()
                 }
                 .onOpenURL { url in
-                    guard url.scheme == "dictascade", url.host == "record" else { return }
-                    let mode = URLComponents(url: url, resolvingAgainstBaseURL: false)?
-                        .queryItems?.first(where: { $0.name == "mode" })?.value
-                    appState.pendingDeepLink = .record(mode: mode)
+                    guard url.scheme == "dictascade" else { return }
+                    switch url.host {
+                    case "record":
+                        let mode = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                            .queryItems?.first(where: { $0.name == "mode" })?.value
+                        appState.pendingDeepLink = .record(mode: mode)
+                    case "stop":
+                        if appState.isRecording || appState.isPaused {
+                            appState.stopAndTranscribe()
+                        }
+                    default:
+                        break
+                    }
                 }
         }
     }

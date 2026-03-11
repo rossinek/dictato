@@ -1,3 +1,4 @@
+import ActivityKit
 import AVFoundation
 import FluidAudio
 import Foundation
@@ -39,6 +40,7 @@ class AppState: ObservableObject {
     private var audioSamples: [Float] = []
     private var failedSamples: [Float] = []
     private var transcriptionTask: Task<Void, Never>?
+    private var recordingActivity: Activity<RecordingAttributes>?
 
     private init() {
         log.info("AppState initialized")
@@ -179,6 +181,7 @@ class AppState: ObservableObject {
             try engine.start()
             audioEngine = engine
             isRecording = true
+            startLiveActivity()
             log.info("Recording started")
         } catch {
             log.error("Failed to start recording: \(error)")
@@ -224,6 +227,7 @@ class AppState: ObservableObject {
         isRecording = false
         isPaused = false
         isTranscribing = true
+        updateLiveActivity(isTranscribing: true)
 
         let samples = audioSamples
         let mode = selectedMode
@@ -232,6 +236,7 @@ class AppState: ObservableObject {
         defer {
             isTranscribing = false
             isPostProcessing = false
+            endLiveActivity()
         }
 
         do {
@@ -281,6 +286,7 @@ class AppState: ObservableObject {
         isRecording = false
         isPaused = false
         isTranscribing = true
+        updateLiveActivity(isTranscribing: true)
 
         let samples = audioSamples
         let mode = selectedMode
@@ -343,6 +349,7 @@ class AppState: ObservableObject {
 
             isTranscribing = false
             isPostProcessing = false
+            self.endLiveActivity()
         }
     }
 
@@ -351,6 +358,7 @@ class AppState: ObservableObject {
         transcriptionTask?.cancel()
         transcriptionTask = nil
         isTranscribing = false
+        endLiveActivity()
         isPostProcessing = false
         log.info("Transcription cancelled")
     }
@@ -365,6 +373,7 @@ class AppState: ObservableObject {
         audioSamples = []
         isPaused = false
         isRecording = false
+        endLiveActivity()
         log.info("Recording discarded")
     }
 
@@ -373,6 +382,41 @@ class AppState: ObservableObject {
         failedSamples = []
         failedRecordingURL = nil
         log.info("Error dismissed")
+    }
+
+    // MARK: - Live Activity
+
+    private func startLiveActivity() {
+        guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
+        let attributes = RecordingAttributes(modeName: selectedMode.name, startTime: .now)
+        let state = RecordingAttributes.ContentState(isTranscribing: false)
+        do {
+            recordingActivity = try Activity.request(
+                attributes: attributes,
+                content: .init(state: state, staleDate: nil),
+                pushType: nil
+            )
+        } catch {
+            log.error("Failed to start Live Activity: \(error)")
+        }
+    }
+
+    private func updateLiveActivity(isTranscribing: Bool) {
+        guard let recordingActivity else { return }
+        let state = RecordingAttributes.ContentState(isTranscribing: isTranscribing)
+        Task {
+            await recordingActivity.update(.init(state: state, staleDate: nil))
+        }
+    }
+
+    private func endLiveActivity() {
+        guard let recordingActivity else { return }
+        let state = RecordingAttributes.ContentState(isTranscribing: false)
+        Task {
+            await recordingActivity.end(.init(state: state, staleDate: nil), dismissalPolicy: .immediate)
+        }
+        self.recordingActivity = nil
+        log.info("Live Activity ended")
     }
 
     func saveFailedRecording() {

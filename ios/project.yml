@@ -16,6 +16,7 @@ targets:
     platform: iOS
     sources:
       - Dictascade
+      - Shared
     settings:
       base:
         INFOPLIST_FILE: Dictascade/Resources/Info.plist
@@ -28,3 +29,21 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     dependencies:
       - package: FluidAudio
+      - target: DictascadeWidgetExtension
+
+  DictascadeWidgetExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - DictascadeWidget
+      - Shared
+    settings:
+      base:
+        INFOPLIST_FILE: DictascadeWidget/Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: com.dictascade.app.widget
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: 1
+        SWIFT_VERSION: "5.9"
+        DEVELOPMENT_TEAM: H7B584W2D6
+        CODE_SIGN_STYLE: Automatic
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/../../Frameworks"
