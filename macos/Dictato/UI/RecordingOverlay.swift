@@ -160,12 +160,14 @@ private struct AudioVisualizerView: View {
     let levels: [Float]
     private let barSpacing: CGFloat = 2
     private let barWidth: CGFloat = 2.5
-    private let minBarHeight: CGFloat = 2
+    private let minBarHeight: CGFloat = 2.5 // matches barWidth for circular dot
     private let referenceLevel: Float = 0.12
 
     @State private var currentLevels: [Float] = []
     @State private var lastUpdateTime: Date = .now
     @State private var averageInterval: TimeInterval = 0.1
+    @State private var smoothedPeak: Float = 0.01
+    @State private var noiseFloor: Float = 0
 
     var body: some View {
         GeometryReader { geo in
@@ -233,10 +235,16 @@ private struct AudioVisualizerView: View {
             source = Array(levels.suffix(sourceCount))
         }
 
-        let peak = max(source.max() ?? 0, referenceLevel)
+        // Fixed dB scale — no normalization needed
+        let dbFloor: Float = -50  // silence threshold
+        let dbCeil: Float = -10   // loud speech
+        let dbRange = dbCeil - dbFloor
+
         return source.map { level in
-            let normalized = min(level / peak, 1.0)
-            return pow(normalized, 0.7)
+            guard level > 0 else { return Float(0) }
+            let db = 20 * log10(level)
+            let normalized = (db - dbFloor) / dbRange
+            return max(0, min(1, normalized))
         }
     }
 }
