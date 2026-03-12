@@ -109,8 +109,18 @@ private struct ModelRow: View {
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
-                Text(engine.displayName)
-                    .font(.body.bold())
+                HStack(spacing: 6) {
+                    Text(engine.displayName)
+                        .font(.body.bold())
+                    if engine == .fluidAudio {
+                        Text("Recommended")
+                            .font(.caption2.weight(.medium))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(.blue.opacity(0.15), in: Capsule())
+                            .foregroundStyle(.blue)
+                    }
+                }
                 Text(engine.description)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -232,8 +242,22 @@ private struct ModeRow: View {
     @State private var modelLoadError: String?
     @State private var lastFetchedProvider: LLMProvider?
 
-    private var downloadedEngines: [TranscriptionEngine] {
-        TranscriptionEngine.allCases.filter { modelManager.isDownloaded($0) }
+    private var isSelectedEngineDownloaded: Bool {
+        modelManager.isDownloaded(mode.transcriptionEngine)
+    }
+
+    private var isMissingLLMModel: Bool {
+        mode.provider != .none && mode.provider.requiresModel && mode.model == nil
+    }
+
+    private var hasAlert: Bool {
+        !isSelectedEngineDownloaded || isMissingAPIKey || isMissingLLMModel
+    }
+
+    private var isMissingAPIKey: Bool {
+        guard mode.provider != .none, mode.provider.baseURL != nil else { return false }
+        guard let key = mode.provider.apiKey() else { return true }
+        return key.isEmpty
     }
 
     var body: some View {
@@ -259,22 +283,22 @@ private struct ModeRow: View {
 
                 Divider()
 
-                if downloadedEngines.isEmpty {
-                    settingsRow("Model") {
-                        HStack(spacing: 4) {
-                            Image(systemName: "exclamationmark.triangle")
+                settingsRow("Model") {
+                    HStack(spacing: 6) {
+                        if !isSelectedEngineDownloaded {
+                            Image(systemName: "exclamationmark.triangle.fill")
                                 .foregroundStyle(.orange)
                                 .font(.caption)
-                            Text("None downloaded")
-                                .font(.callout)
-                                .foregroundStyle(.secondary)
+                                .help("Model not downloaded")
                         }
-                    }
-                } else {
-                    settingsRow("Model") {
                         Picker("", selection: $mode.transcriptionEngine) {
-                            ForEach(downloadedEngines) { engine in
-                                Text(engine.displayName).tag(engine)
+                            ForEach(TranscriptionEngine.allCases) { engine in
+                                HStack {
+                                    Text(engine.displayName)
+                                    if !modelManager.isDownloaded(engine) {
+                                        Text("(not downloaded)")
+                                    }
+                                }.tag(engine)
                             }
                         }
                         .labelsHidden()
@@ -285,18 +309,26 @@ private struct ModeRow: View {
                 Divider()
 
                 settingsRow("Post-processing") {
-                    Picker("", selection: $mode.provider) {
-                        ForEach(LLMProvider.allCases, id: \.self) { provider in
-                            if provider == .appleIntelligence && !LLMProvider.isAppleIntelligenceAvailable {
-                                Text("\(provider.displayName) (not available)").tag(provider)
-                                    .disabled(true)
-                            } else {
-                                Text(provider.displayName).tag(provider)
+                    HStack(spacing: 6) {
+                        if isMissingAPIKey {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                                .font(.caption)
+                                .help("API key not set")
+                        }
+                        Picker("", selection: $mode.provider) {
+                            ForEach(LLMProvider.allCases, id: \.self) { provider in
+                                if provider == .appleIntelligence && !LLMProvider.isAppleIntelligenceAvailable {
+                                    Text("\(provider.displayName) (not available)").tag(provider)
+                                        .disabled(true)
+                                } else {
+                                    Text(provider.displayName).tag(provider)
+                                }
                             }
                         }
+                        .labelsHidden()
+                        .fixedSize()
                     }
-                    .labelsHidden()
-                    .fixedSize()
                 }
 
                 if mode.provider != .none {
@@ -304,30 +336,38 @@ private struct ModeRow: View {
                         Divider()
 
                         settingsRow("LLM") {
-                            Picker("", selection: modelBinding) {
-                                if isLoadingModels {
-                                    Text("Loading…").tag(nil as String?)
-                                } else if let error = modelLoadError {
-                                    Text(error).tag(nil as String?)
-                                } else {
-                                    Text("Select model").tag(nil as String?)
-                                    ForEach(availableModels, id: \.self) { model in
-                                        Text(model).tag(model as String?)
+                            HStack(spacing: 6) {
+                                if isMissingLLMModel {
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                        .foregroundStyle(.orange)
+                                        .font(.caption)
+                                        .help("No model selected")
+                                }
+                                Picker("", selection: modelBinding) {
+                                    if isLoadingModels {
+                                        Text("Loading…").tag(nil as String?)
+                                    } else if let error = modelLoadError {
+                                        Text(error).tag(nil as String?)
+                                    } else {
+                                        Text("Select model").tag(nil as String?)
+                                        ForEach(availableModels, id: \.self) { model in
+                                            Text(model).tag(model as String?)
+                                        }
                                     }
                                 }
-                            }
-                            .labelsHidden()
-                            .fixedSize()
-                            .disabled(isLoadingModels || modelLoadError != nil)
-                            .onChange(of: mode.provider) {
-                                availableModels = []
-                                modelLoadError = nil
-                                mode.model = nil
-                                fetchModels()
-                            }
-                            .onAppear {
-                                if lastFetchedProvider != mode.provider {
+                                .labelsHidden()
+                                .fixedSize()
+                                .disabled(isLoadingModels || modelLoadError != nil)
+                                .onChange(of: mode.provider) {
+                                    availableModels = []
+                                    modelLoadError = nil
+                                    mode.model = nil
                                     fetchModels()
+                                }
+                                .onAppear {
+                                    if lastFetchedProvider != mode.provider {
+                                        fetchModels()
+                                    }
                                 }
                             }
                         }
@@ -366,6 +406,11 @@ private struct ModeRow: View {
             HStack {
                 Text(mode.name)
                     .font(.body.weight(.medium))
+                if hasAlert {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                        .font(.caption)
+                }
 
                 if canDelete {
                     Spacer()

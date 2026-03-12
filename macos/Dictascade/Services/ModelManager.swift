@@ -6,8 +6,8 @@ import WhisperKit
 private let log = Logger(subsystem: "com.dictascade.app", category: "ModelManager")
 
 enum TranscriptionEngine: String, Codable, CaseIterable, Identifiable {
-    case whisperKit
     case fluidAudio
+    case whisperKit
 
     var id: String { rawValue }
 
