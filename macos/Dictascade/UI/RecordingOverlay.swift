@@ -9,8 +9,7 @@ struct RecordingOverlay: View {
     let isError: Bool
     @ObservedObject private var appState = AppState.shared
     @State private var pulse = false
-    @Namespace private var pillNamespace
-    @Environment(\.colorScheme) private var colorScheme
+@Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         VStack(spacing: 8) {
@@ -69,39 +68,10 @@ struct RecordingOverlay: View {
             .clipShape(.capsule)
             .glassEffect(.clear, in: .capsule)
 
-            // Mode pills — separate row below, centered
+            // Mode select pill
             if appState.modes.count > 1 && !isTranscribing && !isPostProcessing && !isError {
-                HStack(spacing: 2) {
-                    ForEach(Array(appState.modes.enumerated()), id: \.element.id) { index, mode in
-                        HStack(spacing: 6) {
-                            Text("\(index + 1)")
-                                .font(.system(size: 10, weight: .medium, design: .rounded))
-                                .padding(.horizontal, 4)
-                                .padding(.vertical, 0)
-                                .background(.quaternary, in: RoundedRectangle(cornerRadius: 3))
-                            Text(mode.name)
-                                .font(.caption)
-                        }
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 4)
-                            .background {
-                                if appState.selectedModeIndex == index {
-                                    Capsule()
-                                        .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.1))
-                                        .matchedGeometryEffect(id: "selectedPill", in: pillNamespace)
-                                }
-                            }
-                            .foregroundStyle(appState.selectedModeIndex == index ? .primary : .secondary)
-                            .contentShape(Capsule())
-                            .onTapGesture {
-                                withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
-                                    AppState.shared.selectMode(index: index)
-                                }
-                            }
-                    }
-                }
-                .padding(4)
-                .glassEffect(.clear)
+                ModeMenuButton(appState: appState)
+                    .glassEffect(.clear)
             }
           }
           .onAppear {
@@ -158,6 +128,50 @@ struct RecordingOverlay: View {
                 Action(key: shortcutLabel, label: "Finish") { AppState.shared.toggleRecording() },
                 Action(key: "esc", label: "Pause") { AppState.shared.togglePause() },
             ]
+        }
+    }
+}
+
+// MARK: - Mode Menu Button
+
+private struct ModeMenuButton: View {
+    @ObservedObject var appState: AppState
+
+    var body: some View {
+        Text(appState.selectedMode.name)
+            .font(.caption)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .contentShape(Capsule())
+            .onTapGesture { showMenu() }
+    }
+
+    private func showMenu() {
+        let menu = NSMenu()
+        for (index, mode) in appState.modes.enumerated() {
+            let item = NSMenuItem(title: mode.name, action: #selector(ModeMenuTarget.selectMode(_:)), keyEquivalent: "\(index + 1)")
+            item.keyEquivalentModifierMask = []
+            item.target = ModeMenuTarget.shared
+            item.tag = index
+            item.state = appState.selectedModeIndex == index ? .on : .off
+            menu.addItem(item)
+        }
+
+        FloatingPanel.isMenuOpen = true
+        menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+        FloatingPanel.isMenuOpen = false
+    }
+}
+
+private class ModeMenuTarget: NSObject {
+    static let shared = ModeMenuTarget()
+
+    @objc func selectMode(_ sender: NSMenuItem) {
+        let index = sender.tag
+        Task { @MainActor in
+            withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
+                AppState.shared.selectMode(index: index)
+            }
         }
     }
 }

@@ -15,6 +15,7 @@ class FloatingPanel: NSPanel {
     private var ghostWindow: NSWindow?
     private var shouldSnap = false
     private var isDragging = false
+    @MainActor static var isMenuOpen = false
 
     init(contentView: some View) {
         super.init(
@@ -62,7 +63,10 @@ class FloatingPanel: NSPanel {
             let passthrough = Unmanaged.passRetained(event)
 
             switch keyCode {
-            case 53: // Escape — always handled when panel is visible
+            case 53: // Escape — let NSMenu handle it if a menu is open
+                if FloatingPanel.isMenuOpen {
+                    return passthrough
+                }
                 Task { @MainActor in
                     let state = AppState.shared
                     if state.isError {
@@ -75,7 +79,6 @@ class FloatingPanel: NSPanel {
                         state.togglePause()
                     }
                 }
-                // Escape always has a handler when panel is visible
                 return nil
             case 36: // Enter — only handle in error or paused state
                 let state = AppState.shared
