@@ -24,6 +24,13 @@ enum TranscriptionEngine: String, Codable, CaseIterable, Identifiable {
         case .fluidAudio: "Nvidia — via FluidAudio"
         }
     }
+
+    var keepLoaded: Bool {
+        switch self {
+        case .whisperKit: false
+        case .fluidAudio: true
+        }
+    }
 }
 
 enum ModelStatus: Equatable {
@@ -264,9 +271,9 @@ class ModelManager: ObservableObject {
         }
     }
 
-    /// Unload the current engine, freeing RAM.
+    /// Unload the current engine, freeing RAM. Engines with keepLoaded skip unloading.
     func unloadCurrent() {
-        guard let engine = loadedEngine else { return }
+        guard let engine = loadedEngine, !engine.keepLoaded else { return }
         unload(engine)
     }
 
