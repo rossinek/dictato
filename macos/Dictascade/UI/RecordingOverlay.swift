@@ -88,7 +88,10 @@ struct RecordingOverlay: View {
     }
 
     private var statusText: String {
-        if isError { return "Transcription failed" }
+        if isError {
+            let msg = appState.errorMessage
+            return msg.isEmpty ? "Transcription failed" : msg
+        }
         if isPaused { return "Paused" }
         if isPostProcessing { return "Post-processing..." }
         if isTranscribing { return "Transcribing..." }
@@ -110,10 +113,13 @@ struct RecordingOverlay: View {
 
     private var actions: [Action] {
         if isError {
-            return [
+            var errorActions = [
                 Action(key: "esc", label: "Dismiss") { AppState.shared.dismissError() },
-                Action(key: "⏎", label: "Save recording") { AppState.shared.saveFailedRecording() },
             ]
+            if appState.hasFailedRecording {
+                errorActions.append(Action(key: "⏎", label: "Save recording") { AppState.shared.saveFailedRecording() })
+            }
+            return errorActions
         } else if isTranscribing || isPostProcessing {
             return [
                 Action(key: "esc", label: "Cancel") { AppState.shared.cancelTranscription() },

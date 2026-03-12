@@ -18,6 +18,7 @@ class AppState: ObservableObject {
     @Published var selectedModeIndex: Int = 0
     @Published var isPostProcessing = false
     @Published var isError = false
+    @Published var errorMessage = ""
     @Published var reTranscribingID: UUID?
     @Published var isFileTranscribing = false
     @Published var mainWindowTab: MainWindowTab = .history
@@ -88,7 +89,9 @@ class AppState: ObservableObject {
 
         // If recording, preload the new mode's engine (cancels previous preload)
         if isRecording || isPaused {
-            modelManager.preload(modes[index].transcriptionEngine)
+            if let engine = resolveEngine(for: modes[index]) {
+                modelManager.preload(engine)
+            }
         }
     }
 
@@ -109,6 +112,14 @@ class AppState: ObservableObject {
         modelManager.isDownloaded(selectedMode.transcriptionEngine)
     }
 
+    /// Returns the mode's engine if downloaded, otherwise any downloaded engine as fallback, or nil if none available.
+    func resolveEngine(for mode: TranscriptionMode) -> TranscriptionEngine? {
+        if modelManager.isDownloaded(mode.transcriptionEngine) {
+            return mode.transcriptionEngine
+        }
+        return TranscriptionEngine.allCases.first { modelManager.isDownloaded($0) }
+    }
+
     func toggleRecording() {
         if isPaused {
             log.info("Resuming recording")
@@ -127,6 +138,13 @@ class AppState: ObservableObject {
     private func startRecording() {
         guard !isTranscribing else {
             log.warning("Cannot start recording: transcribing=\(self.isTranscribing)")
+            return
+        }
+
+        guard let resolvedEngine = resolveEngine(for: selectedMode) else {
+            log.error("No transcription model downloaded")
+            errorMessage = "No model downloaded"
+            isError = true
             return
         }
 
@@ -195,7 +213,7 @@ class AppState: ObservableObject {
             log.info("Recording started")
 
             // Start loading the model in the background while recording
-            modelManager.preload(selectedMode.transcriptionEngine)
+            modelManager.preload(resolvedEngine)
         } catch {
             log.error("Failed to start recording: \(error)")
         }
@@ -255,8 +273,11 @@ class AppState: ObservableObject {
         log.info("Recording discarded")
     }
 
+    var hasFailedRecording: Bool { !failedSamples.isEmpty }
+
     func dismissError() {
         isError = false
+        errorMessage = ""
         failedSamples = []
         log.info("Error dismissed")
     }

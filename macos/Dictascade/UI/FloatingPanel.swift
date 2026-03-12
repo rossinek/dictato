@@ -84,8 +84,10 @@ class FloatingPanel: NSPanel {
                 let state = AppState.shared
                 if state.isError || state.isPaused {
                     Task { @MainActor in
-                        if state.isError {
+                        if state.isError, state.hasFailedRecording {
                             state.saveFailedRecording()
+                        } else if state.isError {
+                            state.dismissError()
                         } else if state.isPaused {
                             state.discardRecording()
                         }
