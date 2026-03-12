@@ -126,6 +126,7 @@ class AppState: ObservableObject {
     func selectMode(index: Int) {
         guard index >= 0, index < modes.count else { return }
         selectedModeIndex = index
+        UserDefaults.standard.set(modes[index].id.uuidString, forKey: "selectedModeID")
         log.info("Selected mode: \(self.modes[index].name)")
     }
 
@@ -886,6 +887,11 @@ class AppState: ObservableObject {
         if modes.isEmpty {
             modes.append(TranscriptionMode.default)
             saveModes()
+        }
+        if let savedID = UserDefaults.standard.string(forKey: "selectedModeID"),
+           let uuid = UUID(uuidString: savedID),
+           let index = modes.firstIndex(where: { $0.id == uuid }) {
+            selectedModeIndex = index
         }
         log.info("Modes loaded (\(self.modes.count) items)")
     }

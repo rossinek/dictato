@@ -1,10 +1,33 @@
 import SwiftUI
 
+// MARK: - Center-Snapping Scroll
+
+private struct PillFramesKey: PreferenceKey {
+    static var defaultValue: [CGRect] = []
+    static func reduce(value: inout [CGRect], nextValue: () -> [CGRect]) {
+        value.append(contentsOf: nextValue())
+    }
+}
+
+private struct CenterSnappingBehavior: ScrollTargetBehavior {
+    let pillFrames: [CGRect]
+
+    func updateTarget(_ target: inout ScrollTarget, context: TargetContext) {
+        let proposedCenter = target.rect.midX
+        guard let nearest = pillFrames.min(by: {
+            abs($0.midX - proposedCenter) < abs($1.midX - proposedCenter)
+        }) else { return }
+        target.rect.origin.x = nearest.midX - context.containerSize.width / 2
+        target.rect.size.width = context.containerSize.width
+        target.anchor = .leading
+    }
+}
+
 struct HomeView: View {
     @ObservedObject var appState: AppState
 
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 4) {
             VStack(spacing: 2) {
                 DictascadeIcon()
                     .frame(width: 36, height: 36)
@@ -182,35 +205,73 @@ struct HomeView: View {
         appState.isError || appState.isPostProcessing || appState.isTranscribing
     }
 
-    @Namespace private var pillNamespace
-    @Environment(\.colorScheme) private var colorScheme
+    @State private var scrolledModeID: TranscriptionMode.ID?
+    @State private var pillFrames: [CGRect] = []
 
     private var modePills: some View {
-        HStack(spacing: 2) {
-            ForEach(Array(appState.modes.enumerated()), id: \.element.id) { index, mode in
-                Text(mode.name)
-                    .font(.caption)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background {
-                        if appState.selectedModeIndex == index {
-                            Capsule()
-                                .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.1))
-                                .matchedGeometryEffect(id: "selectedPill", in: pillNamespace)
+        GeometryReader { geo in
+            let sideSpace = geo.size.width / 2
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 0) {
+                    Color.clear.frame(width: sideSpace)
+                    HStack(spacing: 8) {
+                        ForEach(Array(appState.modes.enumerated()), id: \.element.id) { index, mode in
+                            Text(mode.name)
+                                .font(.caption)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .foregroundStyle(appState.selectedModeIndex == index ? .primary : .secondary)
+                                .background {
+                                    GeometryReader { pillGeo in
+                                        Color.clear.preference(
+                                            key: PillFramesKey.self,
+                                            value: [pillGeo.frame(in: .named("pillScroll"))]
+                                        )
+                                    }
+                                }
+                                .onTapGesture {
+                                    if !pillsDisabled {
+                                        withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
+                                            appState.selectMode(index: index)
+                                            scrolledModeID = mode.id
+                                        }
+                                    }
+                                }
                         }
                     }
-                    .foregroundStyle(appState.selectedModeIndex == index ? .white : .secondary)
-                    .onTapGesture {
-                        if !pillsDisabled {
-                            withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
-                                appState.selectMode(index: index)
-                            }
-                        }
-                    }
+                    .padding(.vertical, 8)
+                    .scrollTargetLayout()
+                    Color.clear.frame(width: sideSpace)
+                }
+                .coordinateSpace(name: "pillScroll")
+            }
+            .scrollTargetBehavior(CenterSnappingBehavior(pillFrames: pillFrames))
+            .scrollPosition(id: $scrolledModeID, anchor: .center)
+            .onPreferenceChange(PillFramesKey.self) { pillFrames = $0 }
+        }
+        .frame(height: 46)
+        .mask(
+            HStack(spacing: 0) {
+                LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing)
+                    .frame(width: 70)
+                Color.black
+                LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
+                    .frame(width: 70)
+            }
+        )
+        .onAppear {
+            if appState.modes.indices.contains(appState.selectedModeIndex) {
+                scrolledModeID = appState.modes[appState.selectedModeIndex].id
             }
         }
-        .padding(4)
-        .glassEffect(.regular)
+        .onChange(of: scrolledModeID) { _, newID in
+            if let newID, let index = appState.modes.firstIndex(where: { $0.id == newID }) {
+                if !pillsDisabled {
+                    appState.selectMode(index: index)
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                }
+            }
+        }
         .opacity(pillsDisabled ? 0.4 : 1.0)
         .animation(.default, value: pillsDisabled)
     }
