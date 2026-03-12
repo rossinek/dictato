@@ -90,7 +90,7 @@ struct ContentView: View {
                 // never shown — intercepted below
                 Color.clear
             } label: {
-                Label("Import", systemImage: "square.and.arrow.down")
+                Label("Import", systemImage: "plus")
             }
         }
         .onChange(of: selectedTab) { _, newValue in
