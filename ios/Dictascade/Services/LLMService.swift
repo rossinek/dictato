@@ -1,16 +1,21 @@
 import Foundation
 import os
+#if canImport(FoundationModels)
+import FoundationModels
+#endif
 
 private let log = Logger(subsystem: "com.dictascade.app", category: "LLMService")
 
 enum LLMProvider: String, Codable, CaseIterable {
     case none
+    case appleIntelligence
     case openai
     case groq
 
     var displayName: String {
         switch self {
         case .none: "None"
+        case .appleIntelligence: "Apple Intelligence"
         case .openai: "OpenAI"
         case .groq: "Groq"
         }
@@ -18,7 +23,7 @@ enum LLMProvider: String, Codable, CaseIterable {
 
     var baseURL: URL? {
         switch self {
-        case .none: nil
+        case .none, .appleIntelligence: nil
         case .openai: URL(string: "https://api.openai.com/v1")
         case .groq: URL(string: "https://api.groq.com/openai/v1")
         }
@@ -26,9 +31,25 @@ enum LLMProvider: String, Codable, CaseIterable {
 
     func apiKey() -> String? {
         switch self {
-        case .none: nil
+        case .none, .appleIntelligence: nil
         case .openai: UserDefaults.standard.string(forKey: "openai_api_key")
         case .groq: UserDefaults.standard.string(forKey: "groq_api_key")
+        }
+    }
+
+    static var isAppleIntelligenceAvailable: Bool {
+        #if canImport(FoundationModels)
+        if #available(iOS 26.0, *) {
+            return SystemLanguageModel.default.isAvailable
+        }
+        #endif
+        return false
+    }
+
+    var requiresModel: Bool {
+        switch self {
+        case .none, .appleIntelligence: false
+        case .openai, .groq: true
         }
     }
 }
@@ -117,9 +138,14 @@ enum LLMService {
         return ids
     }
 
-    static func postProcess(provider: LLMProvider, model: String, systemPrompt: String, userMessage: String) async throws -> String {
+    static func postProcess(provider: LLMProvider, model: String?, systemPrompt: String, userMessage: String) async throws -> String {
+        if provider == .appleIntelligence {
+            return try await postProcessWithAppleIntelligence(systemPrompt: systemPrompt, userMessage: userMessage)
+        }
+
         guard let baseURL = provider.baseURL else { throw LLMError.noBaseURL }
         guard let apiKey = provider.apiKey(), !apiKey.isEmpty else { throw LLMError.noAPIKey }
+        guard let model else { throw LLMError.invalidResponse }
 
         var request = URLRequest(url: baseURL.appendingPathComponent("chat/completions"))
         request.httpMethod = "POST"
@@ -153,7 +179,19 @@ enum LLMService {
             throw LLMError.invalidResponse
         }
 
-        log.info("Post-processing complete via \(provider.displayName)/\(model)")
+        log.info("Post-processing complete via \(provider.displayName)/\(model ?? "unknown")")
         return text
+    }
+
+    private static func postProcessWithAppleIntelligence(systemPrompt: String, userMessage: String) async throws -> String {
+        #if canImport(FoundationModels)
+        if #available(iOS 26.0, *) {
+            let session = LanguageModelSession(instructions: systemPrompt + "\n\nYou will receive a transcription. Apply your instructions to this text. Output only the processed result, no explanations.")
+            let response = try await session.respond(to: userMessage)
+            log.info("Post-processing complete via Apple Intelligence")
+            return response.content
+        }
+        #endif
+        throw LLMError.invalidResponse
     }
 }

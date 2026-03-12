@@ -325,10 +325,10 @@ class AppState: ObservableObject {
             isTranscribing = false
             var finalText = text
             let trimmedPrompt = mode.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-            if mode.provider != .none, let model = mode.model, !trimmedPrompt.isEmpty {
+            if mode.provider != .none, (mode.provider == .appleIntelligence || mode.model != nil), !trimmedPrompt.isEmpty {
                 isPostProcessing = true
                 if let processed = try? await LLMService.postProcess(
-                    provider: mode.provider, model: model,
+                    provider: mode.provider, model: mode.model,
                     systemPrompt: trimmedPrompt, userMessage: text
                 ) {
                     finalText = processed
@@ -392,12 +392,12 @@ class AppState: ObservableObject {
 
                     var processedText: String?
                     let trimmedPrompt = mode.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if mode.provider != .none, let model = mode.model, !trimmedPrompt.isEmpty {
+                    if mode.provider != .none, (mode.provider == .appleIntelligence || mode.model != nil), !trimmedPrompt.isEmpty {
                         isPostProcessing = true
                         do {
                             processedText = try await LLMService.postProcess(
                                 provider: mode.provider,
-                                model: model,
+                                model: mode.model,
                                 systemPrompt: trimmedPrompt,
                                 userMessage: text
                             )
@@ -506,10 +506,10 @@ class AppState: ObservableObject {
 
         var finalText = text
         let trimmedPrompt = mode.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        if mode.provider != .none, let model = mode.model, !trimmedPrompt.isEmpty {
+        if mode.provider != .none, (mode.provider == .appleIntelligence || mode.model != nil), !trimmedPrompt.isEmpty {
             if let processed = try? await LLMService.postProcess(
                 provider: mode.provider,
-                model: model,
+                model: mode.model,
                 systemPrompt: trimmedPrompt,
                 userMessage: text
             ) {
@@ -575,11 +575,11 @@ class AppState: ObservableObject {
 
                 var processedText: String?
                 let trimmedPrompt = mode.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-                if mode.provider != .none, let model = mode.model, !trimmedPrompt.isEmpty {
+                if mode.provider != .none, (mode.provider == .appleIntelligence || mode.model != nil), !trimmedPrompt.isEmpty {
                     do {
                         processedText = try await LLMService.postProcess(
                             provider: mode.provider,
-                            model: model,
+                            model: mode.model,
                             systemPrompt: trimmedPrompt,
                             userMessage: text
                         )
@@ -717,11 +717,11 @@ class AppState: ObservableObject {
 
                 var processedText: String?
                 let trimmedPrompt = mode.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-                if mode.provider != .none, let model = mode.model, !trimmedPrompt.isEmpty {
+                if mode.provider != .none, (mode.provider == .appleIntelligence || mode.model != nil), !trimmedPrompt.isEmpty {
                     do {
                         processedText = try await LLMService.postProcess(
                             provider: mode.provider,
-                            model: model,
+                            model: mode.model,
                             systemPrompt: trimmedPrompt,
                             userMessage: text
                         )

@@ -287,7 +287,12 @@ private struct ModeRow: View {
                 settingsRow("Post-processing") {
                     Picker("", selection: $mode.provider) {
                         ForEach(LLMProvider.allCases, id: \.self) { provider in
-                            Text(provider.displayName).tag(provider)
+                            if provider == .appleIntelligence && !LLMProvider.isAppleIntelligenceAvailable {
+                                Text("\(provider.displayName) (not available)").tag(provider)
+                                    .disabled(true)
+                            } else {
+                                Text(provider.displayName).tag(provider)
+                            }
                         }
                     }
                     .labelsHidden()
@@ -295,33 +300,35 @@ private struct ModeRow: View {
                 }
 
                 if mode.provider != .none {
-                    Divider()
+                    if mode.provider.requiresModel {
+                        Divider()
 
-                    settingsRow("LLM") {
-                        Picker("", selection: modelBinding) {
-                            if isLoadingModels {
-                                Text("Loading…").tag(nil as String?)
-                            } else if let error = modelLoadError {
-                                Text(error).tag(nil as String?)
-                            } else {
-                                Text("Select model").tag(nil as String?)
-                                ForEach(availableModels, id: \.self) { model in
-                                    Text(model).tag(model as String?)
+                        settingsRow("LLM") {
+                            Picker("", selection: modelBinding) {
+                                if isLoadingModels {
+                                    Text("Loading…").tag(nil as String?)
+                                } else if let error = modelLoadError {
+                                    Text(error).tag(nil as String?)
+                                } else {
+                                    Text("Select model").tag(nil as String?)
+                                    ForEach(availableModels, id: \.self) { model in
+                                        Text(model).tag(model as String?)
+                                    }
                                 }
                             }
-                        }
-                        .labelsHidden()
-                        .fixedSize()
-                        .disabled(isLoadingModels || modelLoadError != nil)
-                        .onChange(of: mode.provider) {
-                            availableModels = []
-                            modelLoadError = nil
-                            mode.model = nil
-                            fetchModels()
-                        }
-                        .onAppear {
-                            if lastFetchedProvider != mode.provider {
+                            .labelsHidden()
+                            .fixedSize()
+                            .disabled(isLoadingModels || modelLoadError != nil)
+                            .onChange(of: mode.provider) {
+                                availableModels = []
+                                modelLoadError = nil
+                                mode.model = nil
                                 fetchModels()
+                            }
+                            .onAppear {
+                                if lastFetchedProvider != mode.provider {
+                                    fetchModels()
+                                }
                             }
                         }
                     }
@@ -345,7 +352,7 @@ private struct ModeRow: View {
                                         .foregroundStyle(.tertiary)
                                         .font(.callout)
                                         .padding(.horizontal, 10)
-                                        .padding(.vertical, 10)
+                                        .padding(.vertical, 6)
                                         .allowsHitTesting(false)
                                 }
                             }

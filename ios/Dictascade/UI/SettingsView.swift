@@ -170,10 +170,16 @@ private struct ModeCard: View {
             HStack {
                 Text("Post-processing")
                     .foregroundStyle(.secondary)
+                    .fixedSize()
                 Spacer()
                 Picker("Provider", selection: $mode.provider) {
                     ForEach(LLMProvider.allCases, id: \.self) { provider in
-                        Text(provider.displayName).tag(provider)
+                        if provider == .appleIntelligence && !LLMProvider.isAppleIntelligenceAvailable {
+                            Text("\(provider.displayName) (not available)").tag(provider)
+                                .disabled(true)
+                        } else {
+                            Text(provider.displayName).tag(provider)
+                        }
                     }
                 }
                 .labelsHidden()
@@ -181,42 +187,44 @@ private struct ModeCard: View {
             }
 
             if mode.provider != .none {
-                Divider()
+                if mode.provider.requiresModel {
+                    Divider()
 
-                // Model selector
-                HStack {
-                    Text("Model")
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Button {
-                        if availableModels.isEmpty && !isLoadingModels {
-                            fetchModels()
-                        }
-                        showModelPicker = true
-                    } label: {
-                        HStack(spacing: 4) {
-                            if isLoadingModels {
-                                ProgressView()
-                                    .controlSize(.small)
+                    // Model selector
+                    HStack {
+                        Text("Model")
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button {
+                            if availableModels.isEmpty && !isLoadingModels {
+                                fetchModels()
                             }
-                            Text(mode.model ?? "Select model")
-                                .foregroundStyle(mode.model != nil ? .primary : .secondary)
-                                .lineLimit(1)
-                            Image(systemName: "chevron.right")
-                                .font(.caption)
-                                .foregroundStyle(.tertiary)
+                            showModelPicker = true
+                        } label: {
+                            HStack(spacing: 4) {
+                                if isLoadingModels {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                }
+                                Text(mode.model ?? "Select model")
+                                    .foregroundStyle(mode.model != nil ? .primary : .secondary)
+                                    .lineLimit(1)
+                                Image(systemName: "chevron.right")
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
+                            }
                         }
                     }
-                }
-                .sheet(isPresented: $showModelPicker) {
-                    ModelPickerSheet(
-                        models: availableModels,
-                        selected: $mode.model,
-                        isLoading: isLoadingModels,
-                        error: modelLoadError,
-                        onRefresh: { fetchModels() }
-                    )
-                    .presentationDetents([.medium, .large])
+                    .sheet(isPresented: $showModelPicker) {
+                        ModelPickerSheet(
+                            models: availableModels,
+                            selected: $mode.model,
+                            isLoading: isLoadingModels,
+                            error: modelLoadError,
+                            onRefresh: { fetchModels() }
+                        )
+                        .presentationDetents([.medium, .large])
+                    }
                 }
 
                 Divider()
