@@ -97,7 +97,9 @@ class FloatingPanel: NSPanel {
                     let modePillsVisible = state.modes.count > 1 && !state.isTranscribing && !state.isPostProcessing && !state.isError
                     if modePillsVisible && modeIndex < state.modes.count {
                         Task { @MainActor in
-                            state.selectMode(index: modeIndex)
+                            withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
+                                state.selectMode(index: modeIndex)
+                            }
                         }
                         return nil
                     }
@@ -210,7 +212,7 @@ class FloatingPanel: NSPanel {
 
     private func showGhost(on screen: NSScreen) {
         // Pill height without mode pills row
-        let size = NSSize(width: frame.width, height: min(frame.height, 77))
+        let size = NSSize(width: frame.width, height: min(frame.height, 63))
         let snappedX = screen.visibleFrame.midX - size.width / 2
         let ghostY = frame.origin.y + frame.height - size.height
         let ghostRect = NSRect(x: snappedX, y: ghostY, width: size.width, height: size.height)

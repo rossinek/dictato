@@ -9,12 +9,14 @@ struct RecordingOverlay: View {
     let isError: Bool
     @ObservedObject private var appState = AppState.shared
     @State private var pulse = false
+    @Namespace private var pillNamespace
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         VStack(spacing: 8) {
 
             // Main pill
-            VStack(spacing: 6) {
+            VStack(spacing: 4) {
                 if isRecording {
                     // Placeholder to reserve height for the visualizer
                     Color.clear
@@ -34,13 +36,13 @@ struct RecordingOverlay: View {
                     .frame(height: 19)
                 }
 
-                HStack(spacing: 16) {
+                HStack(spacing: 8) {
                     ForEach(actions, id: \.label) { action in
                         HStack(spacing: 4) {
                             Text(action.key)
                                 .font(.system(size: 10, weight: .medium, design: .rounded))
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 2)
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 0)
                                 .background(.quaternary, in: RoundedRectangle(cornerRadius: 3))
 
                             Text(action.label)
@@ -50,18 +52,18 @@ struct RecordingOverlay: View {
                         .contentShape(Rectangle())
                         .onTapGesture { action.handler() }
                     }
-                }
+                }.opacity(0.4)
             }
             .padding(.horizontal, 24)
             .padding(.top, 20)
-            .padding(.bottom, 14)
+            .padding(.bottom, 6)
             .frame(minWidth: 250)
             .fixedSize()
             .overlay(alignment: .top) {
                 if isRecording {
                     AudioVisualizerView(levels: appState.audioLevels)
                         .frame(height: 19)
-                        .padding(.top, 20)
+                        .padding(.top, 23)
                 }
             }
             .clipShape(.capsule)
@@ -69,32 +71,37 @@ struct RecordingOverlay: View {
 
             // Mode pills — separate row below, centered
             if appState.modes.count > 1 && !isTranscribing && !isPostProcessing && !isError {
-              GlassEffectContainer(spacing: 7) {
-                HStack(spacing: 0) {
-                  ForEach(Array(appState.modes.enumerated()), id: \.element.id) { index, mode in
-                    let isSelected = index == appState.selectedModeIndex
-                    HStack(spacing: 5) {
-                      Text("\(index + 1)")
-                        .font(.system(size: 10, weight: .medium, design: .rounded))
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 2)
-                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 3))
-
-                      Text(mode.name)
-                        .font(.system(size: 11, weight: isSelected ? .bold : .medium))
+                HStack(spacing: 2) {
+                    ForEach(Array(appState.modes.enumerated()), id: \.element.id) { index, mode in
+                        HStack(spacing: 6) {
+                            Text("\(index + 1)")
+                                .font(.system(size: 10, weight: .medium, design: .rounded))
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 0)
+                                .background(.quaternary, in: RoundedRectangle(cornerRadius: 3))
+                            Text(mode.name)
+                                .font(.caption)
+                        }
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 4)
+                            .background {
+                                if appState.selectedModeIndex == index {
+                                    Capsule()
+                                        .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.1))
+                                        .matchedGeometryEffect(id: "selectedPill", in: pillNamespace)
+                                }
+                            }
+                            .foregroundStyle(appState.selectedModeIndex == index ? .primary : .secondary)
+                            .contentShape(Capsule())
+                            .onTapGesture {
+                                withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
+                                    AppState.shared.selectMode(index: index)
+                                }
+                            }
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .glassEffect(
-                      .clear,
-                      in: .capsule
-                    )
-                    .foregroundStyle(isSelected ? .primary : .secondary)
-                    .contentShape(Capsule())
-                    .onTapGesture { AppState.shared.selectMode(index: index) }
-                  }
                 }
-              }
+                .padding(4)
+                .glassEffect(.clear)
             }
           }
           .onAppear {
