@@ -5,10 +5,25 @@ import UniformTypeIdentifiers
 struct DictascadeApp: App {
     @StateObject private var appState = AppState.shared
 
+    @State private var showSplash = true
+
     var body: some Scene {
         WindowGroup {
-            ContentView(appState: appState)
-                .task {
+            ZStack {
+                ContentView(appState: appState)
+                    .opacity(showSplash ? 0 : 1)
+
+                if showSplash {
+                    SplashView()
+                        .transition(.opacity)
+                }
+            }
+            .animation(.easeOut(duration: 0.3), value: showSplash)
+            .task {
+                try? await Task.sleep(for: .seconds(1))
+                showSplash = false
+            }
+            .task {
                     await appState.requestPermissions()
                     await appState.initializeASR()
                 }
@@ -27,6 +42,20 @@ struct DictascadeApp: App {
                         break
                     }
                 }
+        }
+    }
+}
+
+struct SplashView: View {
+    var body: some View {
+        ZStack {
+            Color(uiColor: .systemBackground)
+                .ignoresSafeArea()
+            Image("LaunchLogo")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 48, height: 48)
+                .foregroundStyle(.primary)
         }
     }
 }
