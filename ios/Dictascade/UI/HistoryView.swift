@@ -28,6 +28,7 @@ private struct HistoryRow: View {
     @ObservedObject var appState: AppState
     @State private var selectedTab: Int
     @State private var showShareSheet = false
+    @State private var showTranscriptionSheet = false
     @State private var swipeOffset: CGFloat = 0
     @State private var isSwiped = false
     @State private var isHorizontalDrag: Bool?
@@ -64,6 +65,7 @@ private struct HistoryRow: View {
             Text(displayedText)
                 .lineLimit(4)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .onTapGesture { showTranscriptionSheet = true }
 
             // Bottom row: dropdowns + download
             HStack(spacing: 8) {
@@ -208,6 +210,11 @@ private struct HistoryRow: View {
         .sheet(isPresented: $showShareSheet) {
             if let url = appState.audioFileURL(for: item) {
                 ShareSheet(activityItems: [url])
+            }
+        }
+        .sheet(isPresented: $showTranscriptionSheet) {
+            ResultSheet(transcription: item) {
+                showTranscriptionSheet = false
             }
         }
     }

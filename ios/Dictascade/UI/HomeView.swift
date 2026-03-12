@@ -414,7 +414,7 @@ struct HomeView: View {
 
 // MARK: - Result Sheet
 
-private struct ResultSheet: View {
+struct ResultSheet: View {
     let transcription: Transcription
     let onDismiss: () -> Void
     @State private var selectedTab: Int
