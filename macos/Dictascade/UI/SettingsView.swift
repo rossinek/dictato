@@ -6,6 +6,7 @@ struct SettingsView: View {
     @ObservedObject private var modelManager = AppState.shared.modelManager
     @AppStorage("openai_api_key") private var openAIKey = ""
     @AppStorage("groq_api_key") private var groqKey = ""
+    @AppStorage("iCloudModeSync") private var iCloudModeSync = true
 
     fileprivate static let languages: [(String?, String)] = [
         (nil, "Auto-detect"),
@@ -46,6 +47,25 @@ struct SettingsView: View {
             Section("API Keys") {
                 SecureField("OpenAI", text: $openAIKey)
                 SecureField("Groq", text: $groqKey)
+            }
+
+            // iCloud
+            Section("iCloud") {
+                Toggle("Sync modes across devices", isOn: $iCloudModeSync)
+                    .onChange(of: iCloudModeSync) { _, enabled in
+                        if enabled {
+                            let sync = ModeSync.shared
+                            if let remote = sync.fetchRemote(), remote.deviceID != sync.deviceID {
+                                appState.modes = sync.applyEngineMap(remote.modes)
+                                appState.saveModes()
+                            } else {
+                                sync.pushModes(appState.modes)
+                            }
+                            sync.start()
+                        } else {
+                            ModeSync.shared.stop()
+                        }
+                    }
             }
 
             // Modes

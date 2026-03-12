@@ -4,6 +4,7 @@ struct SettingsView: View {
     @ObservedObject private var appState = AppState.shared
     @AppStorage("openai_api_key") private var openAIKey = ""
     @AppStorage("groq_api_key") private var groqKey = ""
+    @AppStorage("iCloudModeSync") private var iCloudModeSync = true
 
     fileprivate static let languages: [(String?, String)] = [
         (nil, "Auto-detect"),
@@ -42,6 +43,33 @@ struct SettingsView: View {
                         apiKeyRow(title: "Groq", text: $groqKey)
                     }
                     .glassEffect(.regular, in: .rect(cornerRadius: 16))
+                }
+
+                // iCloud
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("iCloud")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 4)
+
+                    Toggle("Sync modes across devices", isOn: $iCloudModeSync)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 14)
+                        .glassEffect(.regular, in: .rect(cornerRadius: 16))
+                        .onChange(of: iCloudModeSync) { _, enabled in
+                            if enabled {
+                                let sync = ModeSync.shared
+                                if let remote = sync.fetchRemote(), remote.deviceID != sync.deviceID {
+                                    AppState.shared.modes = sync.toLocalModes(remote.modes)
+                                    AppState.shared.saveModes()
+                                } else {
+                                    sync.pushModes(AppState.shared.modes)
+                                }
+                                sync.start()
+                            } else {
+                                ModeSync.shared.stop()
+                            }
+                        }
                 }
 
                 // Modes

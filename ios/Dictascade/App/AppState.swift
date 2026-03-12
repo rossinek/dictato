@@ -69,11 +69,54 @@ class AppState: ObservableObject {
     private var transcriptionTask: Task<Void, Never>?
     private var recordingActivity: Activity<RecordingAttributes>?
 
+    private let modeSync = ModeSync.shared
+
     private init() {
         log.info("AppState initialized")
         loadModes()
+        setupModeSync()
         loadHistory()
         cleanupOldRecordings()
+    }
+
+    private func setupModeSync() {
+        modeSync.onRemoteChange = { [weak self] sharedModes in
+            guard let self else { return }
+            // Accept remote as truth
+            self.modes = self.modeSync.toLocalModes(sharedModes)
+            self.saveModesLocal()
+            // Do NOT push back — avoid ping-pong
+            if self.selectedModeIndex >= self.modes.count {
+                self.selectedModeIndex = max(0, self.modes.count - 1)
+            }
+            if self.modes.isEmpty {
+                self.modes.append(TranscriptionMode.default)
+                self.saveModesLocal()
+                self.modeSync.pushModes(self.modes)
+            }
+        }
+
+        // Initial sync
+        if let remote = modeSync.fetchRemote() {
+            if remote.deviceID != modeSync.deviceID {
+                // Accept remote modes
+                modes = modeSync.toLocalModes(remote.modes)
+                saveModesLocal()
+                if selectedModeIndex >= modes.count {
+                    selectedModeIndex = max(0, modes.count - 1)
+                }
+            }
+            // If own device: no-op, already up to date
+        } else {
+            // No remote data — push local modes
+            modeSync.pushModes(modes)
+        }
+
+        if modes.isEmpty {
+            modes.append(TranscriptionMode.default)
+            saveModes()
+        }
+        modeSync.start()
     }
 
     /// For SwiftUI previews only
@@ -868,6 +911,11 @@ class AppState: ObservableObject {
     }
 
     func saveModes() {
+        saveModesLocal()
+        modeSync.pushModes(modes)
+    }
+
+    private func saveModesLocal() {
         do {
             let data = try JSONEncoder().encode(modes)
             try data.write(to: modesFileURL)
@@ -882,11 +930,7 @@ class AppState: ObservableObject {
             let data = try Data(contentsOf: modesFileURL)
             modes = try JSONDecoder().decode([TranscriptionMode].self, from: data)
         } catch {
-            log.debug("No modes file found, using defaults")
-        }
-        if modes.isEmpty {
-            modes.append(TranscriptionMode.default)
-            saveModes()
+            log.debug("No modes file found")
         }
         if let savedID = UserDefaults.standard.string(forKey: "selectedModeID"),
            let uuid = UUID(uuidString: savedID),

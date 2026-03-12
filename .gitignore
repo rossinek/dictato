@@ -21,3 +21,6 @@ xcuserdata/
 *.ipa
 *.dSYM.zip
 *.dSYM
+
+# Other
+*.provisionprofile

@@ -33,6 +33,7 @@ targets:
         CODE_SIGN_IDENTITY: "Developer ID Application"
         DEVELOPMENT_TEAM: H7B584W2D6
         CODE_SIGN_STYLE: Manual
+        PROVISIONING_PROFILE_SPECIFIER: "Dictascade macOS Dev ID"
         ENABLE_HARDENED_RUNTIME: YES
     dependencies:
       - package: WhisperKit

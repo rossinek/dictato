@@ -38,11 +38,57 @@ class AppState: ObservableObject {
     private var failedSamples: [Float] = []
     private var transcriptionTask: Task<Void, Never>?
 
+    private let modeSync = ModeSync.shared
+
     private init() {
         log.info("AppState initialized")
         loadModes()
+        setupModeSync()
         loadHistory()
         cleanupOldRecordings()
+    }
+
+    private func setupModeSync() {
+        // Save engine map from current local modes before any sync
+        modeSync.saveEngineMap(modes)
+
+        modeSync.onRemoteChange = { [weak self] sharedModes in
+            guard let self else { return }
+            // Accept remote as truth, apply local engine map
+            self.modes = self.modeSync.applyEngineMap(sharedModes)
+            self.saveModesLocal()
+            // Do NOT push back — avoid ping-pong
+            if self.selectedModeIndex >= self.modes.count {
+                self.selectedModeIndex = max(0, self.modes.count - 1)
+            }
+            if self.modes.isEmpty {
+                self.modes.append(TranscriptionMode.default)
+                self.saveModesLocal()
+                self.modeSync.pushModes(self.modes)
+            }
+        }
+
+        // Initial sync
+        if let remote = modeSync.fetchRemote() {
+            if remote.deviceID != modeSync.deviceID {
+                // Accept remote modes
+                modes = modeSync.applyEngineMap(remote.modes)
+                saveModesLocal()
+                if selectedModeIndex >= modes.count {
+                    selectedModeIndex = max(0, modes.count - 1)
+                }
+            }
+            // If own device: no-op, already up to date
+        } else {
+            // No remote data — push local modes
+            modeSync.pushModes(modes)
+        }
+
+        if modes.isEmpty {
+            modes.append(TranscriptionMode.default)
+            saveModes()
+        }
+        modeSync.start()
     }
 
     #if DEBUG
@@ -802,6 +848,12 @@ class AppState: ObservableObject {
     }
 
     func saveModes() {
+        saveModesLocal()
+        modeSync.saveEngineMap(modes)
+        modeSync.pushModes(modes)
+    }
+
+    private func saveModesLocal() {
         do {
             let data = try JSONEncoder().encode(modes)
             try data.write(to: modesFileURL)
@@ -816,11 +868,7 @@ class AppState: ObservableObject {
             let data = try Data(contentsOf: modesFileURL)
             modes = try JSONDecoder().decode([TranscriptionMode].self, from: data)
         } catch {
-            log.debug("No modes file found, using defaults")
-        }
-        if modes.isEmpty {
-            modes.append(TranscriptionMode.default)
-            saveModes()
+            log.debug("No modes file found")
         }
         log.info("Modes loaded (\(self.modes.count) items)")
     }

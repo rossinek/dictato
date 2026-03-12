@@ -20,6 +20,7 @@ targets:
     settings:
       base:
         INFOPLIST_FILE: Dictascade/Resources/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Dictascade/Resources/Dictascade.entitlements
         PRODUCT_BUNDLE_IDENTIFIER: com.dictascade.app
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: 1
