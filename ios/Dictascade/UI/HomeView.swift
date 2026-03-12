@@ -141,13 +141,18 @@ struct HomeView: View {
             }
 
             // Center icon
-            Image(systemName: phaseIcon)
-                .font(.system(size: 24, weight: .medium))
-                .foregroundStyle(phaseColor)
-                .contentTransition(.symbolEffect(.replace))
-                .animation(.smooth, value: phaseIcon)
+            if case .downloading = appState.modelLoadingPhase {
+                LoopingArrowIcon(color: phaseColor)
+            } else {
+                Image(systemName: phaseIcon)
+                    .font(.system(size: 24, weight: .medium))
+                    .foregroundStyle(phaseColor)
+                    .contentTransition(.symbolEffect(.replace))
+                    .animation(.smooth, value: phaseIcon)
+            }
         }
         .frame(width: 80, height: 80)
+        .clipShape(.circle)
         .glassEffect(.clear.tint(phaseColor.opacity(0.08)), in: .circle)
     }
 
@@ -639,5 +644,39 @@ extension URL: @retroactive Identifiable {
             loadingFraction: 0.95,
             loadingProgress: "Booting ASR engine..."
         ))
+    }
+}
+
+// MARK: - Looping Arrow Animation
+
+private struct LoopingArrowIcon: View {
+    let color: Color
+
+    var body: some View {
+        KeyframeAnimator(initialValue: AnimationValues(), repeating: true) { values in
+            Image(systemName: "arrow.down")
+                .font(.system(size: 24, weight: .medium))
+                .foregroundStyle(color)
+                .offset(y: values.y)
+                .opacity(values.opacity)
+        } keyframes: { _ in
+            KeyframeTrack(\.y) {
+                CubicKeyframe(0, duration: 0.4)        // ease in to center
+                LinearKeyframe(0, duration: 0.5)        // hold at center
+                LinearKeyframe(70, duration: 0.5)       // ease out downward
+                LinearKeyframe(-70, duration: 0.01)     // snap back to top
+            }
+            KeyframeTrack(\.opacity) {
+                LinearKeyframe(1, duration: 0.9)        // visible through hold
+                CubicKeyframe(0, duration: 0.2)         // fade out at bottom
+                LinearKeyframe(0, duration: 0.31)       // stay hidden during snap
+                CubicKeyframe(1, duration: 0.2)         // fade in at top
+            }
+        }
+    }
+
+    private struct AnimationValues {
+        var y: CGFloat = -70
+        var opacity: Double = 0
     }
 }
