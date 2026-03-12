@@ -20,6 +20,33 @@ class AppState: ObservableObject {
     @Published var isTranscribing = false
     @Published var isModelLoaded = false
     @Published var modelLoadingProgress: String = "Starting..."
+    @Published var modelLoadingFraction: Double = 0
+    @Published var modelLoadingPhase: ModelLoadingPhase = .idle
+
+    enum ModelLoadingPhase: Equatable {
+        case idle
+        case listing
+        case downloading(completedFiles: Int, totalFiles: Int)
+        case compiling(modelName: String)
+        case loading(modelName: String)
+        case initializing
+        case ready
+        case failed
+    }
+
+    // Tracks whether we've finished the initial bulk download (23 files)
+    // so we can distinguish "compiling" (first pass) from "loading" (second pass)
+    private var bulkDownloadDone = false
+    private var compiledModels: Set<String> = []
+    // Model names and their weights for progress calculation
+    // Encoder is ~16s, others are <200ms — weight accordingly
+    private static let modelWeights: [(name: String, weight: Double)] = [
+        ("Preprocessor.mlmodelc", 0.02),
+        ("Encoder.mlmodelc", 0.90),
+        ("Decoder.mlmodelc", 0.02),
+        ("JointDecision.mlmodelc", 0.02),
+    ]
+    // We don't know total weight up front; vocab loading has no callback
     @Published var transcriptionHistory: [Transcription] = []
     @Published var modes: [TranscriptionMode] = []
     @Published var selectedModeIndex: Int = 0
@@ -56,10 +83,18 @@ class AppState: ObservableObject {
         isPaused: Bool = false,
         isTranscribing: Bool = false,
         isPostProcessing: Bool = false,
-        isError: Bool = false
+        isError: Bool = false,
+        loadingPhase: ModelLoadingPhase? = nil,
+        loadingFraction: Double = 0,
+        loadingProgress: String? = nil
     ) -> AppState {
         let state = AppState()
         state.isModelLoaded = isModelLoaded
+        if let loadingPhase {
+            state.modelLoadingPhase = loadingPhase
+            state.modelLoadingFraction = loadingFraction
+            state.modelLoadingProgress = loadingProgress ?? "Loading..."
+        }
         state.isRecording = isRecording
         state.isPaused = isPaused
         state.isTranscribing = isTranscribing
@@ -102,22 +137,96 @@ class AppState: ObservableObject {
 
     func initializeASR() async {
         log.info("Starting FluidAudio initialization")
-        do {
-            modelLoadingProgress = "Downloading model..."
-            log.info("Downloading model...")
 
-            let models = try await AsrModels.downloadAndLoad(version: .v3)
-            modelLoadingProgress = "Loading model..."
-            log.info("Model downloaded, initializing ASR manager...")
+        // Progress layout: download=40%, compile=40%, load=15%, init=5%
+        let downloadWeight = 0.40
+        let compileWeight = 0.40
+        let loadWeight = 0.15
+
+        bulkDownloadDone = false
+        compiledModels = []
+
+        do {
+            modelLoadingProgress = "Checking models..."
+            modelLoadingPhase = .listing
+            modelLoadingFraction = 0
+            log.info("Phase: checking models")
+
+            let models = try await AsrModels.downloadAndLoad(version: .v3) { [weak self] progress in
+                Task { @MainActor in
+                    guard let self else { return }
+
+                    switch progress.phase {
+                    case .listing:
+                        self.modelLoadingPhase = .listing
+                        self.modelLoadingProgress = "Listing model files..."
+                        self.modelLoadingFraction = 0
+                        log.info("Phase: listing files")
+
+                    case .downloading(let completed, let total):
+                        // Skip spurious 0/0 cache-check callbacks
+                        guard total > 0 else { return }
+                        self.bulkDownloadDone = true
+                        let fileFraction = Double(completed) / Double(total)
+                        self.modelLoadingFraction = fileFraction * downloadWeight
+                        self.modelLoadingPhase = .downloading(completedFiles: completed, totalFiles: total)
+                        self.modelLoadingProgress = "Downloading \(completed) of \(total) files..."
+                        log.info("Phase: downloading \(completed)/\(total) (\(String(format: "%.1f%%", self.modelLoadingFraction * 100)))")
+
+                    case .compiling(let modelName):
+                        // Empty name = completion signal, ignore
+                        guard !modelName.isEmpty else { return }
+
+                        if self.compiledModels.contains(modelName) {
+                            // Second pass = loading from cache
+                            let loadedWeight = Self.modelWeights
+                                .filter { self.compiledModels.contains($0.name) }
+                                .map(\.weight).reduce(0, +)
+                            // We're currently loading this one, so count prior ones as done
+                            let priorWeight = Self.modelWeights
+                                .prefix(while: { $0.name != modelName })
+                                .filter { self.compiledModels.contains($0.name) }
+                                .map(\.weight).reduce(0, +)
+                            let loadFraction = loadedWeight > 0 ? priorWeight / loadedWeight : 0
+                            self.modelLoadingFraction = downloadWeight + compileWeight + loadFraction * loadWeight
+                            self.modelLoadingPhase = .loading(modelName: modelName)
+                            let shortName = modelName.replacingOccurrences(of: ".mlmodelc", with: "")
+                            self.modelLoadingProgress = "Loading \(shortName)..."
+                            log.info("Phase: loading \(modelName) (\(String(format: "%.0f%%", self.modelLoadingFraction * 100)))")
+                        } else {
+                            // First pass = actual compilation
+                            self.compiledModels.insert(modelName)
+                            let compiledWeight = Self.modelWeights
+                                .filter { self.compiledModels.contains($0.name) }
+                                .map(\.weight).reduce(0, +)
+                            // compiledWeight is normalized to ~0.96 (sum of known models)
+                            let totalCompileWeight = Self.modelWeights.map(\.weight).reduce(0, +)
+                            let compileFraction = totalCompileWeight > 0 ? compiledWeight / totalCompileWeight : 0
+                            self.modelLoadingFraction = downloadWeight + compileFraction * compileWeight
+                            self.modelLoadingPhase = .compiling(modelName: modelName)
+                            let shortName = modelName.replacingOccurrences(of: ".mlmodelc", with: "")
+                            self.modelLoadingProgress = "Compiling \(shortName)..."
+                            log.info("Phase: compiling \(modelName) (\(String(format: "%.0f%%", self.modelLoadingFraction * 100)))")
+                        }
+                    }
+                }
+            }
+
+            modelLoadingPhase = .initializing
+            modelLoadingProgress = "Booting ASR engine..."
+            modelLoadingFraction = downloadWeight + compileWeight + loadWeight
+            log.info("Phase: initializing ASR manager (\(String(format: "%.0f%%", self.modelLoadingFraction * 100)))")
 
             let manager = AsrManager(config: .default)
             try await manager.initialize(models: models)
 
             self.asrManager = manager
             isModelLoaded = true
+            modelLoadingPhase = .ready
             modelLoadingProgress = "Ready"
-            log.info("Model loaded successfully")
+            log.info("Phase: ready — model loaded successfully")
         } catch {
+            modelLoadingPhase = .failed
             modelLoadingProgress = "Model failed: \(error.localizedDescription)"
             log.error("FluidAudio init failed: \(error)")
         }

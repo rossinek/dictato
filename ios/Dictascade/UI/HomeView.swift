@@ -75,13 +75,106 @@ struct HomeView: View {
         appState.startRecording()
     }
 
+    @State private var ringRotation: Double = 0
+
     private var modelLoadingView: some View {
-        VStack(spacing: 12) {
-            ProgressView()
+        GlassEffectContainer {
+            VStack(spacing: 20) {
+                loadingRing
+                loadingLabel
+            }
+        }
+    }
+
+    private var loadingRing: some View {
+        ZStack {
+            // Track ring
+            Circle()
+                .stroke(.primary.opacity(0.08), lineWidth: 3)
+
+            // Progress or spinning ring
+            if isIndeterminate {
+                Circle()
+                    .trim(from: 0, to: 0.3)
+                    .stroke(
+                        phaseColor.opacity(0.6),
+                        style: StrokeStyle(lineWidth: 3, lineCap: .round)
+                    )
+                    .rotationEffect(.degrees(ringRotation))
+                    .onAppear {
+                        withAnimation(.linear(duration: 1.2).repeatForever(autoreverses: false)) {
+                            ringRotation = 360
+                        }
+                    }
+            } else {
+                Circle()
+                    .trim(from: 0, to: appState.modelLoadingFraction)
+                    .stroke(
+                        phaseColor,
+                        style: StrokeStyle(lineWidth: 3, lineCap: .round)
+                    )
+                    .rotationEffect(.degrees(-90))
+                    .animation(.easeInOut(duration: 0.4), value: appState.modelLoadingFraction)
+            }
+
+            // Center icon
+            Image(systemName: phaseIcon)
+                .font(.system(size: 24, weight: .medium))
+                .foregroundStyle(phaseColor)
+                .contentTransition(.symbolEffect(.replace))
+                .animation(.smooth, value: phaseIcon)
+        }
+        .frame(width: 80, height: 80)
+        .glassEffect(.clear.tint(phaseColor.opacity(0.08)), in: .circle)
+    }
+
+    private var loadingLabel: some View {
+        HStack(spacing: 6) {
             Text(appState.modelLoadingProgress)
-                .font(.system(size: 16, weight: .semibold))
+                .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
+
+            if !isIndeterminate {
+                Text("\(Int(appState.modelLoadingFraction * 100))%")
+                    .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.primary.opacity(0.5))
+                    .contentTransition(.numericText())
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .glassEffect(.regular)
+        .animation(.default, value: appState.modelLoadingProgress)
+    }
+
+    private var phaseColor: Color {
+        switch appState.modelLoadingPhase {
+        case .idle, .listing: return .secondary
+        case .downloading: return .blue
+        case .compiling: return .orange
+        case .loading: return .green
+        case .initializing: return .purple
+        case .ready: return .green
+        case .failed: return .red
+        }
+    }
+
+    private var phaseIcon: String {
+        switch appState.modelLoadingPhase {
+        case .idle, .listing: return "sparkle"
+        case .downloading: return "arrow.down"
+        case .compiling: return "cpu"
+        case .loading: return "memorychip"
+        case .initializing: return "bolt"
+        case .ready: return "checkmark"
+        case .failed: return "exclamationmark.triangle"
+        }
+    }
+
+    private var isIndeterminate: Bool {
+        switch appState.modelLoadingPhase {
+        case .idle, .listing: return true
+        default: return false
         }
     }
 
@@ -435,5 +528,49 @@ extension URL: @retroactive Identifiable {
 #Preview("Loading") {
     NavigationStack {
         HomeView(appState: .preview(isModelLoaded: false))
+    }
+}
+
+#Preview("Downloading") {
+    NavigationStack {
+        HomeView(appState: .preview(
+            isModelLoaded: false,
+            loadingPhase: .downloading(completedFiles: 14, totalFiles: 23),
+            loadingFraction: 0.24,
+            loadingProgress: "Downloading 14 of 23 files..."
+        ))
+    }
+}
+
+#Preview("Compiling") {
+    NavigationStack {
+        HomeView(appState: .preview(
+            isModelLoaded: false,
+            loadingPhase: .compiling(modelName: "Encoder.mlmodelc"),
+            loadingFraction: 0.42,
+            loadingProgress: "Compiling Encoder..."
+        ))
+    }
+}
+
+#Preview("Loading Model") {
+    NavigationStack {
+        HomeView(appState: .preview(
+            isModelLoaded: false,
+            loadingPhase: .loading(modelName: "Encoder.mlmodelc"),
+            loadingFraction: 0.82,
+            loadingProgress: "Loading Encoder..."
+        ))
+    }
+}
+
+#Preview("Booting") {
+    NavigationStack {
+        HomeView(appState: .preview(
+            isModelLoaded: false,
+            loadingPhase: .initializing,
+            loadingFraction: 0.95,
+            loadingProgress: "Booting ASR engine..."
+        ))
     }
 }
