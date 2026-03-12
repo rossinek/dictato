@@ -30,6 +30,7 @@ private struct HistoryRow: View {
     @State private var showShareSheet = false
     @State private var swipeOffset: CGFloat = 0
     @State private var isSwiped = false
+    @State private var isHorizontalDrag: Bool?
 
     init(item: Transcription, appState: AppState) {
         self.item = item
@@ -150,17 +151,19 @@ private struct HistoryRow: View {
                             .font(.caption2)
                     }
                     .fixedSize()
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.red)
                     .frame(width: -swipeOffset)
                     .padding(.vertical, 20)
                 }
-                .background(Color.red)
-                .clipShape(.rect(cornerRadius: 16))
             }
         }
-        .gesture(
+        .simultaneousGesture(
             DragGesture(minimumDistance: 20)
                 .onChanged { value in
+                    if isHorizontalDrag == nil {
+                        isHorizontalDrag = abs(value.translation.width) > abs(value.translation.height)
+                    }
+                    guard isHorizontalDrag == true else { return }
                     if value.translation.width < 0 || isSwiped {
                         swipeOffset = isSwiped
                             ? min(0, -80 + value.translation.width)
@@ -168,8 +171,15 @@ private struct HistoryRow: View {
                     }
                 }
                 .onEnded { value in
+                    defer { isHorizontalDrag = nil }
+                    guard isHorizontalDrag == true else { return }
                     withAnimation(.spring(duration: 0.3, bounce: 0.1)) {
-                        if value.translation.width < -40 && !isSwiped {
+                        if !isSwiped && value.translation.width < -200 {
+                            // Full swipe — delete
+                            swipeOffset = 0
+                            isSwiped = false
+                            appState.deleteTranscription(id: item.id)
+                        } else if !isSwiped && value.translation.width < -40 {
                             swipeOffset = -80
                             isSwiped = true
                         } else if isSwiped && value.translation.width > 40 {
