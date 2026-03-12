@@ -4,6 +4,7 @@ import FluidAudio
 import Foundation
 import os
 import SwiftUI
+import UIKit
 
 private let log = Logger(subsystem: "com.dictascade.app", category: "AppState")
 
@@ -181,6 +182,19 @@ class AppState: ObservableObject {
 
     func initializeASR() async {
         log.info("Starting FluidAudio initialization")
+
+        // Request background execution time so download/compile continues if app is backgrounded
+        var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
+        backgroundTaskID = await UIApplication.shared.beginBackgroundTask {
+            log.warning("Background time expired during model initialization")
+            UIApplication.shared.endBackgroundTask(backgroundTaskID)
+            backgroundTaskID = .invalid
+        }
+        defer {
+            if backgroundTaskID != .invalid {
+                UIApplication.shared.endBackgroundTask(backgroundTaskID)
+            }
+        }
 
         // Progress layout: download=40%, compile=40%, load=15%, init=5%
         let downloadWeight = 0.40
