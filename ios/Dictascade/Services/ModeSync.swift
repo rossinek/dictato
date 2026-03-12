@@ -19,6 +19,19 @@ struct ModeSyncPayload: Codable {
     let deviceID: String
 }
 
+// MARK: - Sync Conflict
+
+struct SyncConflict {
+    let localOnly: [TranscriptionMode]
+    let remoteOnly: [SharedMode]
+    let conflicts: [(local: TranscriptionMode, remote: SharedMode)]
+    let matching: [UUID]
+
+    var hasConflict: Bool {
+        !localOnly.isEmpty || !remoteOnly.isEmpty || !conflicts.isEmpty
+    }
+}
+
 // MARK: - ModeSync
 
 @MainActor
@@ -79,6 +92,60 @@ final class ModeSync {
         guard isEnabled else { return nil }
         guard let data = store.data(forKey: storeKey) else { return nil }
         return try? JSONDecoder().decode(ModeSyncPayload.self, from: data)
+    }
+
+    // MARK: - Conflict Analysis
+
+    func analyzeConflict(local: [TranscriptionMode], remote: [SharedMode]) -> SyncConflict {
+        let localByID = Dictionary(uniqueKeysWithValues: local.map { ($0.id, $0) })
+        let remoteByID = Dictionary(uniqueKeysWithValues: remote.map { ($0.id, $0) })
+
+        var localOnly: [TranscriptionMode] = []
+        var remoteOnly: [SharedMode] = []
+        var conflicts: [(local: TranscriptionMode, remote: SharedMode)] = []
+        var matching: [UUID] = []
+
+        for mode in local {
+            if let r = remoteByID[mode.id] {
+                if mode.name == r.name && mode.prompt == r.prompt && mode.provider == r.provider && mode.model == r.model && mode.language == r.language {
+                    matching.append(mode.id)
+                } else {
+                    conflicts.append((local: mode, remote: r))
+                }
+            } else {
+                localOnly.append(mode)
+            }
+        }
+
+        for shared in remote {
+            if localByID[shared.id] == nil {
+                remoteOnly.append(shared)
+            }
+        }
+
+        return SyncConflict(localOnly: localOnly, remoteOnly: remoteOnly, conflicts: conflicts, matching: matching)
+    }
+
+    func mergeModes(local: [TranscriptionMode], remote: [SharedMode]) -> [TranscriptionMode] {
+        // Start with remote order
+        var result: [TranscriptionMode] = remote.map { shared in
+            TranscriptionMode(
+                id: shared.id,
+                name: shared.name,
+                language: shared.language,
+                prompt: shared.prompt,
+                provider: shared.provider,
+                model: shared.model
+            )
+        }
+
+        // Append local-only modes at end
+        let remoteIDs = Set(remote.map { $0.id })
+        for mode in local where !remoteIDs.contains(mode.id) {
+            result.append(mode)
+        }
+
+        return result
     }
 
     /// Convert SharedModes to TranscriptionModes (iOS: direct mapping, no engine field).

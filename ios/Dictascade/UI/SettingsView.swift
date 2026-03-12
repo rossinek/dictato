@@ -5,6 +5,7 @@ struct SettingsView: View {
     @AppStorage("openai_api_key") private var openAIKey = ""
     @AppStorage("groq_api_key") private var groqKey = ""
     @AppStorage("iCloudModeSync") private var iCloudModeSync = true
+    @State private var pendingConflictItem: PendingConflict?
 
     fileprivate static let languages: [(String?, String)] = [
         (nil, "Auto-detect"),
@@ -60,10 +61,14 @@ struct SettingsView: View {
                             if enabled {
                                 let sync = ModeSync.shared
                                 if let remote = sync.fetchRemote(), remote.deviceID != sync.deviceID {
-                                    AppState.shared.modes = sync.toLocalModes(remote.modes)
-                                    AppState.shared.saveModes()
+                                    let conflict = sync.analyzeConflict(local: appState.modes, remote: remote.modes)
+                                    if conflict.hasConflict {
+                                        iCloudModeSync = false
+                                        pendingConflictItem = PendingConflict(conflict: conflict, remoteModes: remote.modes)
+                                        return
+                                    }
                                 } else {
-                                    sync.pushModes(AppState.shared.modes)
+                                    sync.pushModes(appState.modes)
                                 }
                                 sync.start()
                             } else {
@@ -134,6 +139,25 @@ struct SettingsView: View {
             UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         }
         .navigationTitle("Settings")
+        .sheet(item: $pendingConflictItem) { item in
+            SyncConflictSheet(conflict: item.conflict, remoteModes: item.remoteModes) { resolution in
+                let sync = ModeSync.shared
+                switch resolution {
+                case .useICloud:
+                    appState.modes = sync.toLocalModes(item.remoteModes)
+                    appState.saveModes()
+                case .keepLocal:
+                    sync.pushModes(appState.modes)
+                case .mergeBoth:
+                    appState.modes = sync.mergeModes(local: appState.modes, remote: item.remoteModes)
+                    appState.saveModes()
+                    sync.pushModes(appState.modes)
+                }
+                iCloudModeSync = true
+                sync.start()
+                pendingConflictItem = nil
+            }
+        }
     }
 
     private func apiKeyRow(title: String, text: Binding<String>) -> some View {
@@ -375,6 +399,122 @@ private struct ModelPickerSheet: View {
                     }
                 }
             }
+        }
+    }
+}
+
+// MARK: - Sync Conflict Sheet
+
+private struct PendingConflict: Identifiable {
+    let id = UUID()
+    let conflict: SyncConflict
+    let remoteModes: [SharedMode]
+}
+
+private enum SyncResolution {
+    case useICloud, keepLocal, mergeBoth
+}
+
+private struct SyncConflictSheet: View {
+    let conflict: SyncConflict
+    let remoteModes: [SharedMode]
+    let onResolve: (SyncResolution) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    private var localModes: [TranscriptionMode] {
+        AppState.shared.modes
+    }
+
+    private var mergedNames: [String] {
+        let localIDs = Set(localModes.map { $0.id })
+        let remoteIDs = Set(remoteModes.map { $0.id })
+        let matchingIDs = Set(conflict.matching)
+
+        var names: [String] = []
+        for r in remoteModes {
+            if matchingIDs.contains(r.id) {
+                names.append(r.name)
+            } else if localIDs.contains(r.id) {
+                names.append("\(r.name) (remote)")
+            } else {
+                names.append("\(r.name) (remote)")
+            }
+        }
+        for l in localModes where !remoteIDs.contains(l.id) {
+            names.append("\(l.name) (local)")
+        }
+        return names
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 16) {
+                    Text("Modes differ from iCloud")
+                        .font(.headline)
+                        .padding(.top, 4)
+
+                    optionButton("Use iCloud", resolution: .useICloud) {
+                        ForEach(remoteModes, id: \.id) { mode in
+                            Label(mode.name, systemImage: "circle.fill")
+                                .font(.callout)
+                                .labelStyle(BulletLabelStyle())
+                        }
+                    }
+
+                    optionButton("Keep Local", resolution: .keepLocal) {
+                        ForEach(localModes) { mode in
+                            Label(mode.name, systemImage: "circle.fill")
+                                .font(.callout)
+                                .labelStyle(BulletLabelStyle())
+                        }
+                    }
+
+                    optionButton("Merge Both", resolution: .mergeBoth) {
+                        ForEach(Array(mergedNames.enumerated()), id: \.offset) { _, name in
+                            Label(name, systemImage: "circle.fill")
+                                .font(.callout)
+                                .labelStyle(BulletLabelStyle())
+                        }
+                    }
+                }
+                .padding(20)
+            }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private func optionButton<Content: View>(_ title: String, resolution: SyncResolution, @ViewBuilder content: () -> Content) -> some View {
+        Button {
+            onResolve(resolution)
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title)
+                    .font(.callout.weight(.semibold))
+                content()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
+            .contentShape(Rectangle())
+            .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct BulletLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 6) {
+            configuration.icon
+                .font(.system(size: 4))
+                .foregroundStyle(.secondary)
+            configuration.title
         }
     }
 }

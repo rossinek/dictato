@@ -7,6 +7,7 @@ struct SettingsView: View {
     @AppStorage("openai_api_key") private var openAIKey = ""
     @AppStorage("groq_api_key") private var groqKey = ""
     @AppStorage("iCloudModeSync") private var iCloudModeSync = true
+    @State private var pendingConflictItem: PendingConflict?
 
     fileprivate static let languages: [(String?, String)] = [
         (nil, "Auto-detect"),
@@ -56,8 +57,12 @@ struct SettingsView: View {
                         if enabled {
                             let sync = ModeSync.shared
                             if let remote = sync.fetchRemote(), remote.deviceID != sync.deviceID {
-                                appState.modes = sync.applyEngineMap(remote.modes)
-                                appState.saveModes()
+                                let conflict = sync.analyzeConflict(local: appState.modes, remote: remote.modes)
+                                if conflict.hasConflict {
+                                    iCloudModeSync = false
+                                    pendingConflictItem = PendingConflict(conflict: conflict, remoteModes: remote.modes)
+                                    return
+                                }
                             } else {
                                 sync.pushModes(appState.modes)
                             }
@@ -116,6 +121,141 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .sheet(item: $pendingConflictItem) { item in
+            SyncConflictSheet(conflict: item.conflict, remoteModes: item.remoteModes) { resolution in
+                let sync = ModeSync.shared
+                switch resolution {
+                case .useICloud:
+                    appState.modes = sync.applyEngineMap(item.remoteModes)
+                    appState.saveModes()
+                case .keepLocal:
+                    sync.pushModes(appState.modes)
+                case .mergeBoth:
+                    appState.modes = sync.mergeModes(local: appState.modes, remote: item.remoteModes)
+                    appState.saveModes()
+                    sync.pushModes(appState.modes)
+                }
+                iCloudModeSync = true
+                sync.start()
+                pendingConflictItem = nil
+            }
+        }
+    }
+}
+
+// MARK: - Sync Conflict Sheet
+
+private struct PendingConflict: Identifiable {
+    let id = UUID()
+    let conflict: SyncConflict
+    let remoteModes: [SharedMode]
+}
+
+private enum SyncResolution {
+    case useICloud, keepLocal, mergeBoth
+}
+
+private struct SyncConflictSheet: View {
+    let conflict: SyncConflict
+    let remoteModes: [SharedMode]
+    let onResolve: (SyncResolution) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    private var localModes: [TranscriptionMode] {
+        AppState.shared.modes
+    }
+
+    private var mergedNames: [String] {
+        let sync = ModeSync.shared
+        let localIDs = Set(localModes.map { $0.id })
+        let remoteIDs = Set(remoteModes.map { $0.id })
+        let matchingIDs = Set(conflict.matching)
+
+        var names: [String] = []
+        // Remote-order modes first
+        for r in remoteModes {
+            if matchingIDs.contains(r.id) {
+                names.append(r.name)
+            } else if localIDs.contains(r.id) {
+                names.append("\(r.name) (remote)")
+            } else {
+                names.append("\(r.name) (remote)")
+            }
+        }
+        // Local-only modes
+        for l in localModes where !remoteIDs.contains(l.id) {
+            names.append("\(l.name) (local)")
+        }
+        return names
+    }
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Text("Modes differ from iCloud")
+                .font(.headline)
+                .padding(.top, 4)
+
+            optionButton("Use iCloud", resolution: .useICloud) {
+                ForEach(remoteModes, id: \.id) { mode in
+                    Label(mode.name, systemImage: "circle.fill")
+                        .font(.callout)
+                        .labelStyle(BulletLabelStyle())
+                }
+            }
+
+            optionButton("Keep Local", resolution: .keepLocal) {
+                ForEach(localModes) { mode in
+                    Label(mode.name, systemImage: "circle.fill")
+                        .font(.callout)
+                        .labelStyle(BulletLabelStyle())
+                }
+            }
+
+            optionButton("Merge Both", resolution: .mergeBoth) {
+                ForEach(Array(mergedNames.enumerated()), id: \.offset) { _, name in
+                    Label(name, systemImage: "circle.fill")
+                        .font(.callout)
+                        .labelStyle(BulletLabelStyle())
+                }
+            }
+
+            Button("Cancel") {
+                dismiss()
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .padding(.bottom, 4)
+        }
+        .padding(20)
+        .frame(width: 320)
+    }
+
+    private func optionButton<Content: View>(_ title: String, resolution: SyncResolution, @ViewBuilder content: () -> Content) -> some View {
+        Button {
+            onResolve(resolution)
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title)
+                    .font(.callout.weight(.semibold))
+                content()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
+            .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct BulletLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 6) {
+            configuration.icon
+                .font(.system(size: 4))
+                .foregroundStyle(.secondary)
+            configuration.title
+        }
     }
 }
 
