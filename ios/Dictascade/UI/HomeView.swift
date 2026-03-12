@@ -207,6 +207,7 @@ struct HomeView: View {
 
     @State private var scrolledModeID: TranscriptionMode.ID?
     @State private var pillFrames: [CGRect] = []
+    @Namespace private var pillNamespace
 
     private var modePills: some View {
         GeometryReader { geo in
@@ -214,29 +215,34 @@ struct HomeView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 0) {
                     Color.clear.frame(width: sideSpace)
-                    HStack(spacing: 8) {
-                        ForEach(Array(appState.modes.enumerated()), id: \.element.id) { index, mode in
-                            Text(mode.name)
-                                .font(.caption)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 6)
-                                .foregroundStyle(appState.selectedModeIndex == index ? .primary : .secondary)
-                                .background {
-                                    GeometryReader { pillGeo in
-                                        Color.clear.preference(
-                                            key: PillFramesKey.self,
-                                            value: [pillGeo.frame(in: .named("pillScroll"))]
-                                        )
-                                    }
-                                }
-                                .onTapGesture {
-                                    if !pillsDisabled {
-                                        withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
-                                            appState.selectMode(index: index)
-                                            scrolledModeID = mode.id
+                    GlassEffectContainer {
+                        HStack(spacing: 8) {
+                            ForEach(Array(appState.modes.enumerated()), id: \.element.id) { index, mode in
+                                Text(mode.name)
+                                    .font(.caption)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 6)
+                                    .foregroundStyle(appState.selectedModeIndex == index ? .primary : .secondary)
+                                    .glassEffect(appState.selectedModeIndex == index ? .clear : .identity, in: .capsule)
+                                    .glassEffectID("modePillGlass", in: pillNamespace)
+                                    .glassEffectTransition(.matchedGeometry)
+                                    .background {
+                                        GeometryReader { pillGeo in
+                                            Color.clear.preference(
+                                                key: PillFramesKey.self,
+                                                value: [pillGeo.frame(in: .named("pillScroll"))]
+                                            )
                                         }
                                     }
-                                }
+                                    .onTapGesture {
+                                        if !pillsDisabled {
+                                            withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
+                                                appState.selectMode(index: index)
+                                                scrolledModeID = mode.id
+                                            }
+                                        }
+                                    }
+                            }
                         }
                     }
                     .padding(.vertical, 8)
