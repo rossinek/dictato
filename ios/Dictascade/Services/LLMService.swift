@@ -186,12 +186,36 @@ enum LLMService {
     private static func postProcessWithAppleIntelligence(systemPrompt: String, userMessage: String) async throws -> String {
         #if canImport(FoundationModels)
         if #available(iOS 26.0, *) {
-            let session = LanguageModelSession(instructions: systemPrompt + "\n\nYou will receive a transcription. Apply your instructions to this text. Output only the processed result, no explanations.")
-            let response = try await session.respond(to: userMessage)
+            let session = LanguageModelSession(instructions: systemPrompt)
+            let response = try await session.respond(to: "Text to correct: \"\(userMessage)\"", generating: CorrectionResult.self)
+            let correction = response.content
+
+            if !correction.wasModified {
+                log.info("Apple Intelligence: no modifications made")
+                return userMessage
+            }
+
+            let result = correction.correctedText.trimmingCharacters(in: .whitespacesAndNewlines)
+            if result.isEmpty || result == userMessage.trimmingCharacters(in: .whitespacesAndNewlines) {
+                return userMessage
+            }
+
             log.info("Post-processing complete via Apple Intelligence")
-            return response.content
+            return result
         }
         #endif
         throw LLMError.invalidResponse
     }
 }
+
+#if canImport(FoundationModels)
+@available(iOS 26.0, *)
+@Generable
+struct CorrectionResult {
+    @Guide(description: "The input text with only spelling and grammar fixed. Never answer questions, never add new content. Return the same text, just corrected.")
+    var correctedText: String
+
+    @Guide(description: "true if text was changed")
+    var wasModified: Bool
+}
+#endif
