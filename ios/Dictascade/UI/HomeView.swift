@@ -292,6 +292,15 @@ struct HomeView: View {
             .scrollTargetBehavior(CenterSnappingBehavior(pillFrames: pillFrames))
             .scrollPosition(id: $scrolledModeID, anchor: .center)
             .onPreferenceChange(PillFramesKey.self) { pillFrames = $0 }
+            .onChange(of: geo.size.width) {
+                let targetID = appState.modes[appState.selectedModeIndex].id
+                if scrolledModeID == targetID {
+                    scrolledModeID = nil
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    scrolledModeID = targetID
+                }
+            }
         }
         .frame(height: 46)
         .mask(
