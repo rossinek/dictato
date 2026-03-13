@@ -182,6 +182,11 @@ struct HomeView: View {
         .frame(width: 80, height: 80)
         .clipShape(.circle)
         .glassEffect(.clear.tint(phaseColor.opacity(0.08)), in: .circle)
+        .overlay {
+            if case .ready = appState.modelLoadingPhase {
+                SunburstView(color: .green)
+            }
+        }
     }
 
     private var loadingLabel: some View {
@@ -672,6 +677,35 @@ extension URL: @retroactive Identifiable {
             loadingFraction: 0.95,
             loadingProgress: "Booting ASR engine..."
         ))
+    }
+}
+
+// MARK: - Sunburst Celebration
+
+private struct SunburstView: View {
+    let color: Color
+    private let rayCount = 12
+    private let rayLength: CGFloat = 10
+    private let rayWidth: CGFloat = 2.5
+
+    @State private var burst = false
+
+    var body: some View {
+        ZStack {
+            ForEach(0..<rayCount, id: \.self) { i in
+                Capsule()
+                    .fill(color)
+                    .frame(width: rayWidth, height: rayLength)
+                    .offset(y: burst ? -68 : -48)
+                    .opacity(burst ? 0 : 0.9)
+                    .rotationEffect(.degrees(Double(i) * 360 / Double(rayCount)))
+            }
+        }
+        .onAppear {
+            withAnimation(.easeOut(duration: 0.6)) {
+                burst = true
+            }
+        }
     }
 }
 

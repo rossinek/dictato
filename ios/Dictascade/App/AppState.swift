@@ -184,6 +184,7 @@ class AppState: ObservableObject {
     }
 
     func initializeASR() async {
+        let startTime = Date.now
         log.info("Starting FluidAudio initialization")
 
         // Request background execution time so download/compile continues if app is backgrounded
@@ -282,10 +283,19 @@ class AppState: ObservableObject {
             try await manager.initialize(models: models)
 
             self.asrManager = manager
+            let loadDuration = Date.now.timeIntervalSince(startTime)
+
+            if loadDuration > 5 {
+                // Show celebration only after a meaningful loading process
+                modelLoadingFraction = 1.0
+                modelLoadingPhase = .ready
+                modelLoadingProgress = "Ready"
+                log.info("Phase: ready — model loaded successfully (took \(String(format: "%.1f", loadDuration))s, showing celebration)")
+                try? await Task.sleep(for: .seconds(2.0))
+            } else {
+                log.info("Phase: ready — model loaded quickly (\(String(format: "%.1f", loadDuration))s, skipping celebration)")
+            }
             isModelLoaded = true
-            modelLoadingPhase = .ready
-            modelLoadingProgress = "Ready"
-            log.info("Phase: ready — model loaded successfully")
         } catch {
             modelLoadingPhase = .failed
             modelLoadingProgress = "Model failed: \(error.localizedDescription)"
