@@ -58,6 +58,9 @@ class AppState: ObservableObject {
     @Published var lastTranscriptionResult: Transcription?
     @Published var failedRecordingURL: URL?
     @Published var pendingDeepLink: DeepLink?
+    @Published var audioLevels: [Float] = []
+
+    private static let audioLevelBarCount = 48
 
     var selectedMode: TranscriptionMode {
         modes[min(selectedModeIndex, modes.count - 1)]
@@ -300,6 +303,7 @@ class AppState: ObservableObject {
 
         do {
             audioSamples = []
+            audioLevels = []
             let engine = AVAudioEngine()
             let inputNode = engine.inputNode
             let recordingFormat = inputNode.outputFormat(forBus: 0)
@@ -337,8 +341,22 @@ class AppState: ObservableObject {
                     samples = Array(UnsafeBufferPointer(start: buffer.floatChannelData![0], count: Int(buffer.frameLength)))
                 }
 
+                // Compute RMS amplitude for this buffer
+                let rms: Float = samples.isEmpty ? 0 : {
+                    let sumOfSquares = samples.reduce(Float(0)) { $0 + $1 * $1 }
+                    return sqrt(sumOfSquares / Float(samples.count))
+                }()
+
                 DispatchQueue.main.async {
                     self?.audioSamples.append(contentsOf: samples)
+
+                    // Update rolling audio levels for visualization
+                    if let self {
+                        self.audioLevels.append(rms)
+                        if self.audioLevels.count > Self.audioLevelBarCount {
+                            self.audioLevels.removeFirst(self.audioLevels.count - Self.audioLevelBarCount)
+                        }
+                    }
                 }
             }
 

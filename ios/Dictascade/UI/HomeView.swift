@@ -25,6 +25,11 @@ private struct CenterSnappingBehavior: ScrollTargetBehavior {
 
 struct HomeView: View {
     @ObservedObject var appState: AppState
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+
+    private var isLandscape: Bool {
+        verticalSizeClass == .compact
+    }
 
     var body: some View {
         VStack(spacing: 4) {
@@ -52,7 +57,24 @@ struct HomeView: View {
 
             if !appState.isModelLoaded {
                 modelLoadingView
+            } else if isLandscape {
+                HStack(spacing: 0) {
+                    AudioVisualizerView(levels: appState.audioLevels)
+                        .opacity(appState.isRecording ? 1 : 0)
+                        .animation(.easeInOut(duration: 0.3), value: appState.isRecording)
+                        .frame(maxWidth: .infinity)
+                    VStack {
+                        buttonRow
+                        modePills
+                    }
+                    .frame(maxWidth: .infinity)
+                }
             } else {
+                AudioVisualizerView(levels: appState.audioLevels)
+                    .frame(height: 100)
+                    .padding(.vertical, 32)
+                    .opacity(appState.isRecording ? 1 : 0)
+                    .animation(.easeInOut(duration: 0.3), value: appState.isRecording)
                 buttonRow
                 modePills
             }
