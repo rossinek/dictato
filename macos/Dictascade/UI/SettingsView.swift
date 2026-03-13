@@ -7,6 +7,8 @@ struct SettingsView: View {
     @AppStorage("openai_api_key") private var openAIKey = ""
     @AppStorage("groq_api_key") private var groqKey = ""
     @AppStorage("iCloudModeSync") private var iCloudModeSync = true
+    @AppStorage("autoPaste") private var autoPaste = true
+    @AppStorage("restoreClipboard") private var restoreClipboard = true
     @State private var pendingConflictItem: PendingConflict?
 
     fileprivate static let languages: [(String?, String)] = [
@@ -41,7 +43,30 @@ struct SettingsView: View {
 
             // Keyboard Shortcut
             Section("Keyboard Shortcut") {
-                KeyboardShortcuts.Recorder("Toggle Recording:", name: .toggleRecording)
+              KeyboardShortcuts.Recorder("Toggle Recording", name: .toggleRecording)
+            }
+
+            // Clipboard
+            Section("Clipboard") {
+                let hasAccessibility = PermissionsService.hasAccessibilityAccess
+                Toggle("Auto-paste", isOn: hasAccessibility ? $autoPaste : .constant(false))
+                    .disabled(!hasAccessibility)
+                if !hasAccessibility {
+                    HStack {
+                        Text("Requires Accessibility permission")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Open Settings") {
+                            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
+                        }
+                        .buttonStyle(.glass)
+                        .controlSize(.regular)
+                    }
+                }
+                if hasAccessibility && autoPaste {
+                  Toggle("Restore clipboard after paste", isOn: $restoreClipboard)
+                }
             }
 
             // API Keys
@@ -303,8 +328,8 @@ private struct ModelRow: View {
                     await modelManager.download(engine)
                 }
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
+            .buttonStyle(.glass)
+            .controlSize(.regular)
 
         case .downloading(let progress):
             HStack(spacing: 8) {
@@ -381,7 +406,7 @@ private struct ModelRow: View {
                         await modelManager.download(engine)
                     }
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.glass)
                 .controlSize(.small)
             }
         }
