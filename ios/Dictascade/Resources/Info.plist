@@ -22,7 +22,10 @@
         <string>UIInterfaceOrientationLandscapeRight</string>
     </array>
     <key>UILaunchScreen</key>
-    <dict/>
+    <dict>
+        <key>UIColorName</key>
+        <string>LaunchBackground</string>
+    </dict>
     <key>NSMicrophoneUsageDescription</key>
     <string>Dictascade needs microphone access to record and transcribe your speech.</string>
     <key>NSSupportsLiveActivities</key>

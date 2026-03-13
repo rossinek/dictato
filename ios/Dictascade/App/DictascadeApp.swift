@@ -18,6 +18,7 @@ struct DictascadeApp: App {
                         .transition(.opacity)
                 }
             }
+            .preferredColorScheme(.dark)
             .animation(.easeOut(duration: 0.3), value: showSplash)
             .task {
                 try? await Task.sleep(for: .seconds(1))
