@@ -10,5 +10,10 @@
 	<string>manual</string>
 	<key>signingCertificate</key>
 	<string>Developer ID Application</string>
+	<key>provisioningProfiles</key>
+	<dict>
+		<key>com.dictascade.app</key>
+		<string>Dictascade macOS Dev ID</string>
+	</dict>
 </dict>
 </plist>
