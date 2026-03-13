@@ -57,6 +57,7 @@ struct HomeView: View {
 
             if !appState.isModelLoaded {
                 modelLoadingView
+                    .transition(.move(edge: .top).combined(with: .opacity))
             } else if isLandscape {
                 HStack(spacing: 0) {
                     AudioVisualizerView(levels: appState.audioLevels)
@@ -69,18 +70,23 @@ struct HomeView: View {
                     }
                     .frame(maxWidth: .infinity)
                 }
+                .transition(.scale(scale: 1.2).combined(with: .opacity))
             } else {
-                AudioVisualizerView(levels: appState.audioLevels)
-                    .frame(height: 100)
-                    .padding(.vertical, 32)
-                    .opacity(appState.isRecording ? 1 : 0)
-                    .animation(.easeInOut(duration: 0.3), value: appState.isRecording)
-                buttonRow
-                modePills
+                VStack {
+                    AudioVisualizerView(levels: appState.audioLevels)
+                        .frame(height: 100)
+                        .padding(.vertical, 32)
+                        .opacity(appState.isRecording ? 1 : 0)
+                        .animation(.easeInOut(duration: 0.3), value: appState.isRecording)
+                    buttonRow
+                    modePills
+                }
+                .transition(.scale(scale: 1.2).combined(with: .opacity))
             }
 
             Spacer()
         }
+        .animation(.spring(duration: 0.8, bounce: 0.1), value: appState.isModelLoaded)
         .padding(20)
         .navigationBarHidden(true)
         .onChange(of: appState.isModelLoaded) { _, loaded in
