@@ -41,9 +41,15 @@ struct SettingsView: View {
                 }
             }
 
-            // Keyboard Shortcut
-            Section("Keyboard Shortcut") {
+            // Keyboard Shortcuts
+            Section("Keyboard Shortcuts") {
               KeyboardShortcuts.Recorder("Toggle Recording", name: .toggleRecording)
+              KeyboardShortcuts.Recorder("Use Last Transcription", name: .pasteLastTranscription)
+              if autoPaste && !PermissionsService.hasAccessibilityAccess {
+                  Text("Without Accessibility, this shortcut will only copy to clipboard")
+                      .font(.caption)
+                      .foregroundStyle(.secondary)
+              }
             }
 
             // Clipboard

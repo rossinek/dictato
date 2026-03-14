@@ -149,6 +149,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        KeyboardShortcuts.onKeyDown(for: .pasteLastTranscription) {
+            Task { @MainActor in
+                guard let last = appState.transcriptionHistory.first else { return }
+                let text = last.postProcessedText ?? last.text
+                PasteService.paste(text: text)
+            }
+        }
+
         stateObservation = Task { @MainActor [weak self] in
             var previousRecording = false
             var previousPaused = false
