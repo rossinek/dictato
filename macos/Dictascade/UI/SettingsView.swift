@@ -7,6 +7,7 @@ struct SettingsView: View {
     @AppStorage("openai_api_key") private var openAIKey = ""
     @AppStorage("groq_api_key") private var groqKey = ""
     @AppStorage("iCloudModeSync") private var iCloudModeSync = true
+    @AppStorage("vocabulary") private var vocabulary = ""
     @AppStorage("autoPaste") private var autoPaste = true
     @AppStorage("restoreClipboard") private var restoreClipboard = true
     @State private var pendingConflictItem: PendingConflict?
@@ -52,6 +53,62 @@ struct SettingsView: View {
               }
             }
 
+            // iCloud
+            Section("iCloud") {
+                Toggle("Sync settings across devices", isOn: $iCloudModeSync)
+                    .onChange(of: iCloudModeSync) { _, enabled in
+                        if enabled {
+                            let sync = ModeSync.shared
+                            if let remote = sync.fetchRemote(), remote.deviceID != sync.deviceID {
+                                let conflict = sync.analyzeConflict(local: appState.modes, remote: remote.modes)
+                                if conflict.hasConflict {
+                                    iCloudModeSync = false
+                                    pendingConflictItem = PendingConflict(conflict: conflict, remoteModes: remote.modes)
+                                    return
+                                }
+                            } else {
+                                sync.pushModes(appState.modes)
+                            }
+                            let localVocab = UserDefaults.standard.string(forKey: "vocabulary") ?? ""
+                            if !localVocab.isEmpty {
+                                sync.pushVocabulary(localVocab)
+                            }
+                            sync.start()
+                        } else {
+                            ModeSync.shared.stop()
+                        }
+                    }
+            }
+
+            // Vocabulary
+            Section("Vocabulary") {
+                VStack(alignment: .leading, spacing: 6) {
+                    TextEditor(text: $vocabulary)
+                        .font(.callout.monospaced())
+                        .frame(minHeight: 60, maxHeight: 120)
+                        .scrollContentBackground(.hidden)
+                        .padding(6)
+                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+                        .overlay(alignment: .topLeading) {
+                            if vocabulary.isEmpty {
+                                Text("One word per line...")
+                                    .foregroundStyle(.tertiary)
+                                    .font(.callout.monospaced())
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .allowsHitTesting(false)
+                            }
+                        }
+                        .onChange(of: vocabulary) {
+                            appState.modelManager.configureVocabulary(vocabulary)
+                            ModeSync.shared.pushVocabulary(vocabulary)
+                        }
+                    Text("Words to boost during Parakeet transcription. Use word: alias1, alias2 for alternative spellings.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             // Clipboard
             Section("Clipboard") {
                 let hasAccessibility = PermissionsService.hasAccessibilityAccess
@@ -79,29 +136,6 @@ struct SettingsView: View {
             Section("API Keys") {
                 SecureField("OpenAI", text: $openAIKey)
                 SecureField("Groq", text: $groqKey)
-            }
-
-            // iCloud
-            Section("iCloud") {
-                Toggle("Sync modes across devices", isOn: $iCloudModeSync)
-                    .onChange(of: iCloudModeSync) { _, enabled in
-                        if enabled {
-                            let sync = ModeSync.shared
-                            if let remote = sync.fetchRemote(), remote.deviceID != sync.deviceID {
-                                let conflict = sync.analyzeConflict(local: appState.modes, remote: remote.modes)
-                                if conflict.hasConflict {
-                                    iCloudModeSync = false
-                                    pendingConflictItem = PendingConflict(conflict: conflict, remoteModes: remote.modes)
-                                    return
-                                }
-                            } else {
-                                sync.pushModes(appState.modes)
-                            }
-                            sync.start()
-                        } else {
-                            ModeSync.shared.stop()
-                        }
-                    }
             }
 
             // Modes

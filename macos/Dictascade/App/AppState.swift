@@ -68,6 +68,12 @@ class AppState: ObservableObject {
             }
         }
 
+        modeSync.onVocabularyChange = { [weak self] remoteVocab in
+            guard let self else { return }
+            UserDefaults.standard.set(remoteVocab, forKey: "vocabulary")
+            self.modelManager.configureVocabulary(remoteVocab)
+        }
+
         // Initial sync
         if let remote = modeSync.fetchRemote() {
             if remote.deviceID != modeSync.deviceID {
@@ -88,6 +94,22 @@ class AppState: ObservableObject {
             modes.append(TranscriptionMode.default)
             saveModes()
         }
+
+        // Initial vocabulary sync
+        if let remoteVocab = modeSync.fetchRemoteVocabulary() {
+            let localVocab = UserDefaults.standard.string(forKey: "vocabulary") ?? ""
+            if localVocab.isEmpty && !remoteVocab.isEmpty {
+                UserDefaults.standard.set(remoteVocab, forKey: "vocabulary")
+            } else if !localVocab.isEmpty {
+                modeSync.pushVocabulary(localVocab)
+            }
+        } else {
+            let localVocab = UserDefaults.standard.string(forKey: "vocabulary") ?? ""
+            if !localVocab.isEmpty {
+                modeSync.pushVocabulary(localVocab)
+            }
+        }
+
         modeSync.start()
     }
 

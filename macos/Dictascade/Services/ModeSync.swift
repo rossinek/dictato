@@ -40,6 +40,7 @@ final class ModeSync {
 
     private let store = NSUbiquitousKeyValueStore.default
     private let storeKey = "modes"
+    private let vocabularyKey = "vocabulary"
     private let engineMapKey = "modeEngines"
     private let log = Logger(subsystem: "com.dictascade.app", category: "ModeSync")
 
@@ -60,6 +61,8 @@ final class ModeSync {
 
     /// Callback when remote modes arrive. Delivers SharedModes directly — caller converts to TranscriptionMode.
     var onRemoteChange: (([SharedMode]) -> Void)?
+    /// Callback when remote vocabulary arrives.
+    var onVocabularyChange: ((String) -> Void)?
 
     func start() {
         guard isEnabled else { return }
@@ -93,6 +96,19 @@ final class ModeSync {
         guard isEnabled else { return nil }
         guard let data = store.data(forKey: storeKey) else { return nil }
         return try? JSONDecoder().decode(ModeSyncPayload.self, from: data)
+    }
+
+    // MARK: - Vocabulary Sync
+
+    func pushVocabulary(_ text: String) {
+        guard isEnabled else { return }
+        store.set(text, forKey: vocabularyKey)
+        log.info("Pushed vocabulary to iCloud")
+    }
+
+    func fetchRemoteVocabulary() -> String? {
+        guard isEnabled else { return nil }
+        return store.string(forKey: vocabularyKey)
     }
 
     // MARK: - Conflict Analysis
@@ -218,15 +234,27 @@ final class ModeSync {
     @objc private nonisolated func handleRemoteChange(_ notification: Notification) {
         Task { @MainActor in
             guard isEnabled else { return }
-            guard let data = store.data(forKey: storeKey) else { return }
 
-            do {
-                let remote = try JSONDecoder().decode(ModeSyncPayload.self, from: data)
-                guard remote.deviceID != deviceID else { return }
-                log.info("Received remote mode change from device \(remote.deviceID.prefix(8))...")
-                onRemoteChange?(remote.modes)
-            } catch {
-                log.error("Failed to decode remote change: \(error)")
+            // Modes
+            if let data = store.data(forKey: storeKey) {
+                do {
+                    let remote = try JSONDecoder().decode(ModeSyncPayload.self, from: data)
+                    if remote.deviceID != deviceID {
+                        log.info("Received remote mode change from device \(remote.deviceID.prefix(8))...")
+                        onRemoteChange?(remote.modes)
+                    }
+                } catch {
+                    log.error("Failed to decode remote change: \(error)")
+                }
+            }
+
+            // Vocabulary
+            if let remoteVocab = store.string(forKey: vocabularyKey) {
+                let localVocab = UserDefaults.standard.string(forKey: "vocabulary") ?? ""
+                if remoteVocab != localVocab {
+                    log.info("Received remote vocabulary change")
+                    onVocabularyChange?(remoteVocab)
+                }
             }
         }
     }

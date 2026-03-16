@@ -4,6 +4,7 @@ struct SettingsView: View {
     @ObservedObject private var appState = AppState.shared
     @AppStorage("openai_api_key") private var openAIKey = ""
     @AppStorage("groq_api_key") private var groqKey = ""
+    @AppStorage("vocabulary") private var vocabulary = ""
     @AppStorage("iCloudModeSync") private var iCloudModeSync = true
     @State private var pendingConflictItem: PendingConflict?
 
@@ -53,7 +54,7 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 4)
 
-                    Toggle("Sync modes across devices", isOn: $iCloudModeSync)
+                    Toggle("Sync settings across devices", isOn: $iCloudModeSync)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 14)
                         .glassEffect(.regular, in: .rect(cornerRadius: 16))
@@ -70,11 +71,52 @@ struct SettingsView: View {
                                 } else {
                                     sync.pushModes(appState.modes)
                                 }
+                                let localVocab = UserDefaults.standard.string(forKey: "vocabulary") ?? ""
+                                if !localVocab.isEmpty {
+                                    sync.pushVocabulary(localVocab)
+                                }
                                 sync.start()
                             } else {
                                 ModeSync.shared.stop()
                             }
                         }
+                }
+
+                // Vocabulary
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Vocabulary")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 4)
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        TextEditor(text: $vocabulary)
+                            .font(.body.monospaced())
+                            .frame(minHeight: 80, maxHeight: 120)
+                            .scrollContentBackground(.hidden)
+                            .padding(10)
+                            .background(.quaternary, in: RoundedRectangle(cornerRadius: 10))
+                            .overlay(alignment: .topLeading) {
+                                if vocabulary.isEmpty {
+                                    Text("One word per line...")
+                                        .foregroundStyle(.tertiary)
+                                        .font(.body.monospaced())
+                                        .padding(.horizontal, 14)
+                                        .padding(.vertical, 19)
+                                        .allowsHitTesting(false)
+                                }
+                            }
+                            .onChange(of: vocabulary) {
+                                appState.configureVocabulary(vocabulary)
+                                ModeSync.shared.pushVocabulary(vocabulary)
+                            }
+                        Text("Words to boost during transcription. Use word: alias1, alias2 for alternative spellings.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 4)
+                    }
+                    .padding(16)
+                    .glassEffect(.regular, in: .rect(cornerRadius: 16))
                 }
 
                 // Modes

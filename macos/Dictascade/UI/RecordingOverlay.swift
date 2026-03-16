@@ -66,12 +66,12 @@ struct RecordingOverlay: View {
                 }
             }
             .clipShape(.capsule)
-            .glassEffect(.clear, in: .capsule)
+            .glassEffect(.regular, in: .capsule)
 
             // Mode select pill
             if appState.modes.count > 1 && !isTranscribing && !isPostProcessing && !isError {
                 ModeMenuButton(appState: appState)
-                    .glassEffect(.clear)
+                    .glassEffect(.regular)
             }
           }
           .onAppear {
@@ -239,7 +239,7 @@ private struct AudioVisualizerView: View {
                         let baseOpacity = 0.3 + Double(bar.level) * 0.7
                         let rect = CGRect(x: x, y: scaledY, width: barWidth, height: scaledHeight)
                         let path = Path(roundedRect: rect, cornerRadius: barWidth / 2)
-                        ctx.fill(path, with: .color(.white.opacity(baseOpacity * Double(edgeProximity))))
+                        ctx.fill(path, with: .color(.primary.opacity(baseOpacity * Double(edgeProximity))))
                     }
                 }
                 .frame(width: width, height: maxHeight)

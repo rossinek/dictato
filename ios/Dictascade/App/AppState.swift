@@ -67,6 +67,7 @@ class AppState: ObservableObject {
     }
 
     private var asrManager: AsrManager?
+    private var ctcModels: CtcModels?
     private var audioEngine: AVAudioEngine?
     private var audioSamples: [Float] = []
     private var failedSamples: [Float] = []
@@ -100,6 +101,12 @@ class AppState: ObservableObject {
             }
         }
 
+        modeSync.onVocabularyChange = { [weak self] remoteVocab in
+            guard let self else { return }
+            UserDefaults.standard.set(remoteVocab, forKey: "vocabulary")
+            self.configureVocabulary(remoteVocab)
+        }
+
         // Initial sync
         if let remote = modeSync.fetchRemote() {
             if remote.deviceID != modeSync.deviceID {
@@ -120,6 +127,22 @@ class AppState: ObservableObject {
             modes.append(TranscriptionMode.default)
             saveModes()
         }
+
+        // Initial vocabulary sync
+        if let remoteVocab = modeSync.fetchRemoteVocabulary() {
+            let localVocab = UserDefaults.standard.string(forKey: "vocabulary") ?? ""
+            if localVocab.isEmpty && !remoteVocab.isEmpty {
+                UserDefaults.standard.set(remoteVocab, forKey: "vocabulary")
+            } else if !localVocab.isEmpty {
+                modeSync.pushVocabulary(localVocab)
+            }
+        } else {
+            let localVocab = UserDefaults.standard.string(forKey: "vocabulary") ?? ""
+            if !localVocab.isEmpty {
+                modeSync.pushVocabulary(localVocab)
+            }
+        }
+
         modeSync.start()
     }
 
@@ -283,6 +306,13 @@ class AppState: ObservableObject {
             try await manager.initialize(models: models)
 
             self.asrManager = manager
+
+            // Apply vocabulary boosting if configured
+            let vocab = UserDefaults.standard.string(forKey: "vocabulary") ?? ""
+            if !vocab.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                configureVocabulary(vocab)
+            }
+
             let loadDuration = Date.now.timeIntervalSince(startTime)
 
             if loadDuration > 5 {
@@ -300,6 +330,92 @@ class AppState: ObservableObject {
             modelLoadingPhase = .failed
             modelLoadingProgress = "Model failed: \(error.localizedDescription)"
             log.error("FluidAudio init failed: \(error)")
+        }
+    }
+
+    // MARK: - Vocabulary Boosting
+
+    func configureVocabulary(_ text: String) {
+        guard let manager = asrManager else {
+            log.info("Vocabulary: no ASR manager loaded, skipping")
+            return
+        }
+
+        let terms = parseVocabularyTerms(text)
+        guard !terms.isEmpty else {
+            manager.disableVocabularyBoosting()
+            log.info("Vocabulary: disabled (no terms)")
+            return
+        }
+
+        Task {
+            do {
+                if ctcModels == nil {
+                    log.info("Vocabulary: downloading CTC models...")
+                    ctcModels = try await CtcModels.downloadAndLoad(variant: .ctc110m)
+                    fixCtcConfigJson()
+                    log.info("Vocabulary: CTC models ready")
+                }
+
+                guard let ctcModels else { return }
+
+                let tokenizer = try await CtcTokenizer.load(
+                    from: CtcModels.defaultCacheDirectory(for: .ctc110m)
+                )
+                let tokenizedTerms = terms.compactMap { term -> CustomVocabularyTerm? in
+                    let ids = tokenizer.encode(term.text)
+                    guard !ids.isEmpty else { return nil }
+                    return CustomVocabularyTerm(
+                        text: term.text,
+                        weight: term.weight,
+                        aliases: term.aliases,
+                        ctcTokenIds: ids
+                    )
+                }
+
+                let vocab = CustomVocabularyContext(terms: tokenizedTerms, minSimilarity: 0.8)
+                try await manager.configureVocabularyBoosting(
+                    vocabulary: vocab,
+                    ctcModels: ctcModels
+                )
+                log.info("Vocabulary: configured \(tokenizedTerms.count) terms")
+            } catch {
+                log.error("Vocabulary: configuration failed: \(error)")
+            }
+        }
+    }
+
+    private func parseVocabularyTerms(_ text: String) -> [CustomVocabularyTerm] {
+        text.split(whereSeparator: \.isNewline)
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && !$0.hasPrefix("#") }
+            .map { line in
+                if let colon = line.firstIndex(of: ":") {
+                    let word = String(line[..<colon]).trimmingCharacters(in: .whitespaces)
+                    let aliases = String(line[line.index(after: colon)...])
+                        .split(separator: ",")
+                        .map { String($0).trimmingCharacters(in: .whitespaces) }
+                        .filter { !$0.isEmpty }
+                    return CustomVocabularyTerm(text: word, aliases: aliases.isEmpty ? nil : aliases)
+                }
+                return CustomVocabularyTerm(text: line)
+            }
+    }
+
+    /// Fix trailing commas in CTC config.json that cause JSON parsing failures.
+    private func fixCtcConfigJson() {
+        let configURL = CtcModels.defaultCacheDirectory(for: .ctc110m)
+            .appendingPathComponent("config.json")
+        guard var content = try? String(contentsOf: configURL, encoding: .utf8) else { return }
+        let original = content
+        content = content.replacingOccurrences(
+            of: #",\s*([}\]])"#,
+            with: "$1",
+            options: .regularExpression
+        )
+        if content != original {
+            try? content.write(to: configURL, atomically: true, encoding: .utf8)
+            log.info("Vocabulary: fixed trailing comma in CTC config.json")
         }
     }
 
