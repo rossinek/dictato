@@ -71,6 +71,9 @@ class ModelManager: ObservableObject {
 
     private var whisperModelFolder: URL?
     private var ctcModels: CtcModels?
+    private var ctcSpotter: CtcKeywordSpotter?
+    private var vocabularyRescorer: VocabularyRescorer?
+    private var customVocabularyContext: CustomVocabularyContext?
 
     init() {
         checkExistingDownloads()
@@ -366,7 +369,37 @@ class ModelManager: ObservableObject {
         }
 
         let result = try await manager.transcribe(samples, source: .system)
-        return result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        var text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Apply vocabulary rescoring if configured
+        if let spotter = ctcSpotter,
+           let rescorer = vocabularyRescorer,
+           let vocab = customVocabularyContext,
+           let tokenTimings = result.tokenTimings, !tokenTimings.isEmpty {
+            do {
+                let spotResult = try await spotter.spotKeywordsWithLogProbs(
+                    audioSamples: samples,
+                    customVocabulary: vocab
+                )
+                if !spotResult.logProbs.isEmpty {
+                    let rescoreOutput = rescorer.ctcTokenRescore(
+                        transcript: text,
+                        tokenTimings: tokenTimings,
+                        logProbs: spotResult.logProbs,
+                        frameDuration: spotResult.frameDuration,
+                        minSimilarity: 0.85
+                    )
+                    if rescoreOutput.wasModified {
+                        text = rescoreOutput.text
+                        log.info("Vocabulary: applied \(rescoreOutput.replacements.count) replacement(s)")
+                    }
+                }
+            } catch {
+                log.error("Vocabulary rescoring failed: \(error)")
+            }
+        }
+
+        return text
     }
 
     private func unload(_ engine: TranscriptionEngine) {
@@ -375,6 +408,9 @@ class ModelManager: ObservableObject {
             whisperKit = nil
         case .fluidAudio:
             asrManager = nil
+            ctcSpotter = nil
+            vocabularyRescorer = nil
+            customVocabularyContext = nil
         }
         if loadedEngine == engine {
             loadedEngine = nil
@@ -385,14 +421,11 @@ class ModelManager: ObservableObject {
     // MARK: - Vocabulary Boosting
 
     func configureVocabulary(_ text: String) {
-        guard let manager = asrManager else {
-            log.info("Vocabulary: no ASR manager loaded, skipping")
-            return
-        }
-
         let terms = parseVocabularyTerms(text)
         guard !terms.isEmpty else {
-            manager.disableVocabularyBoosting()
+            ctcSpotter = nil
+            vocabularyRescorer = nil
+            customVocabularyContext = nil
             log.info("Vocabulary: disabled (no terms)")
             return
         }
@@ -423,10 +456,18 @@ class ModelManager: ObservableObject {
                 }
 
                 let vocab = CustomVocabularyContext(terms: tokenizedTerms, minSimilarity: 0.8)
-                try await manager.configureVocabularyBoosting(
+                let blankId = ctcModels.vocabulary.count
+                let spotter = CtcKeywordSpotter(models: ctcModels, blankId: blankId)
+                let ctcModelDir = CtcModels.defaultCacheDirectory(for: ctcModels.variant)
+                let rescorer = try await VocabularyRescorer.create(
+                    spotter: spotter,
                     vocabulary: vocab,
-                    ctcModels: ctcModels
+                    ctcModelDirectory: ctcModelDir
                 )
+
+                self.ctcSpotter = spotter
+                self.vocabularyRescorer = rescorer
+                self.customVocabularyContext = vocab
                 log.info("Vocabulary: configured \(tokenizedTerms.count) terms")
             } catch {
                 log.error("Vocabulary: configuration failed: \(error)")
