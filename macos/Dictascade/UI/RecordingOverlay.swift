@@ -2,14 +2,15 @@ import KeyboardShortcuts
 import SwiftUI
 
 struct RecordingOverlay: View {
-    let isRecording: Bool
-    let isPaused: Bool
-    let isTranscribing: Bool
-    let isPostProcessing: Bool
-    let isError: Bool
     @ObservedObject private var appState = AppState.shared
     @State private var pulse = false
-@Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var isRecording: Bool { appState.isRecording }
+    private var isPaused: Bool { appState.isPaused }
+    private var isTranscribing: Bool { appState.isTranscribing }
+    private var isPostProcessing: Bool { appState.isPostProcessing }
+    private var isError: Bool { appState.isError }
 
     var body: some View {
         VStack(spacing: 8) {
@@ -281,50 +282,14 @@ private struct AudioVisualizerView: View {
     }
 }
 
-#Preview("Recording") {
+#Preview {
     VStack(spacing: 0) {
-        RecordingOverlay(
-            isRecording: true, isPaused: false, isTranscribing: false, isPostProcessing: false, isError: false
-        )
-        .frame(width: 400, height: 200)
-        .background(.black)
+        RecordingOverlay()
+            .frame(width: 400, height: 200)
+            .background(.black)
 
-        RecordingOverlay(
-            isRecording: true, isPaused: false, isTranscribing: false, isPostProcessing: false, isError: false
-        )
-        .frame(width: 400, height: 200)
-        .background(.white)
-    }
-}
-
-#Preview("Paused") {
-    HStack(spacing: 0) {
-        RecordingOverlay(
-            isRecording: false, isPaused: true, isTranscribing: false, isPostProcessing: false, isError: false
-        )
-        .frame(width: 400, height: 200)
-        .background(.black)
-
-        RecordingOverlay(
-            isRecording: false, isPaused: true, isTranscribing: false, isPostProcessing: false, isError: false
-        )
-        .frame(width: 400, height: 200)
-        .background(.white)
-    }
-}
-
-#Preview("Transcribing") {
-    HStack(spacing: 0) {
-        RecordingOverlay(
-            isRecording: false, isPaused: false, isTranscribing: true, isPostProcessing: false, isError: false
-        )
-        .frame(width: 400, height: 200)
-        .background(.black)
-
-        RecordingOverlay(
-            isRecording: false, isPaused: false, isTranscribing: true, isPostProcessing: false, isError: false
-        )
-        .frame(width: 400, height: 200)
-        .background(.white)
+        RecordingOverlay()
+            .frame(width: 400, height: 200)
+            .background(.white)
     }
 }

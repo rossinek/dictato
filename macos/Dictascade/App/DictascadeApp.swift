@@ -158,74 +158,50 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         stateObservation = Task { @MainActor [weak self] in
-            var previousRecording = false
-            var previousPaused = false
-            var previousTranscribing = false
-            var previousPostProcessing = false
-            var previousError = false
-            var previousModeIndex = 0
-            var previousModelLoading = false
+            var wasVisible = false
 
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(100))
                 guard let self else { return }
 
-                let recording = appState.isRecording
-                let paused = appState.isPaused
-                let transcribing = appState.isTranscribing
-                let postProcessing = appState.isPostProcessing
-                let error = appState.isError
-                let modeIndex = appState.selectedModeIndex
-                let modelLoading = appState.isModelLoading
+                let shouldShow = appState.isRecording || appState.isPaused ||
+                    appState.isTranscribing || appState.isPostProcessing ||
+                    appState.isError || appState.isModelLoading
 
-                let stateChanged = recording != previousRecording || paused != previousPaused || transcribing != previousTranscribing || postProcessing != previousPostProcessing || error != previousError || modelLoading != previousModelLoading
-                let modeChanged = modeIndex != previousModeIndex
-
-                if stateChanged || modeChanged {
-                    if recording || paused || transcribing || postProcessing || error || modelLoading {
-                        // Only rebuild panel on state changes; mode changes are handled reactively by SwiftUI
-                        if stateChanged {
-                            showPanel(recording: recording, isPaused: paused, transcribing: transcribing, postProcessing: postProcessing, isError: error, isModelLoading: modelLoading)
-                        }
-                    } else {
-                        hidePanel()
-                    }
-                    previousRecording = recording
-                    previousPaused = paused
-                    previousTranscribing = transcribing
-                    previousPostProcessing = postProcessing
-                    previousError = error
-                    previousModeIndex = modeIndex
-                    previousModelLoading = modelLoading
+                if shouldShow && !wasVisible {
+                    showPanel()
+                    wasVisible = true
+                } else if !shouldShow && wasVisible {
+                    hidePanel()
+                    wasVisible = false
+                } else if shouldShow {
+                    resizePanel()
                 }
             }
         }
     }
 
     @MainActor
-    private func showPanel(recording: Bool, isPaused: Bool, transcribing: Bool, postProcessing: Bool = false, isError: Bool = false, isModelLoading: Bool = false) {
-        let overlay = RecordingOverlay(
-            isRecording: recording,
-            isPaused: isPaused,
-            isTranscribing: transcribing,
-            isPostProcessing: postProcessing,
-            isError: isError
-        )
-
+    private func showPanel() {
         if panel == nil {
-            panel = FloatingPanel(contentView: overlay)
+            panel = FloatingPanel(contentView: RecordingOverlay())
             panel?.installKeyMonitor()
+        }
+        panel?.orderFront(nil)
+    }
 
-        } else if let panel {
+    @MainActor
+    private func resizePanel() {
+        guard let panel, let contentView = panel.contentView else { return }
+        let size = contentView.fittingSize
+        guard size.width > 0, size.height > 0 else { return }
+        let currentSize = panel.frame.size
+        if abs(size.width - currentSize.width) > 1 || abs(size.height - currentSize.height) > 1 {
             let oldMidX = panel.frame.midX
-            let hostingView = NSHostingView(rootView: overlay)
-            panel.contentView = hostingView
-            let size = hostingView.fittingSize
             panel.setContentSize(size)
             let newX = oldMidX - size.width / 2
             panel.setFrameOrigin(NSPoint(x: newX, y: panel.frame.origin.y))
         }
-        panel?.orderFront(nil)
     }
 
     @MainActor
