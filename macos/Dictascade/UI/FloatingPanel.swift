@@ -132,12 +132,15 @@ class FloatingPanel: NSPanel {
     }
 
     func removeKeyMonitor() {
+        if let runLoopSource {
+            CFRunLoopRemoveSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
+            CFRunLoopSourceInvalidate(runLoopSource)
+            self.runLoopSource = nil
+        }
+
         if let eventTap {
             CGEvent.tapEnable(tap: eventTap, enable: false)
-            if let runLoopSource {
-                CFRunLoopRemoveSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
-                self.runLoopSource = nil
-            }
+            CFMachPortInvalidate(eventTap)
             self.eventTap = nil
         }
     }
@@ -303,8 +306,8 @@ class FloatingPanel: NSPanel {
 
     deinit {
         removeKeyMonitor()
-
         hideSnapIndicators()
+        NotificationCenter.default.removeObserver(self)
     }
 }
 

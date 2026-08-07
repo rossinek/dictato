@@ -23,15 +23,13 @@ class AppState: ObservableObject {
     @Published var isFileTranscribing = false
     @Published var mainWindowTab: MainWindowTab = .history
     @Published var shouldOpenMainWindow = false
-    @Published var audioLevels: [Float] = []
-
-    private static let audioLevelBarCount = 48
 
     var selectedMode: TranscriptionMode {
         modes[min(selectedModeIndex, modes.count - 1)]
     }
 
     let modelManager = ModelManager()
+    let audioLevelMeter = AudioLevelMeter()
 
     private var audioEngine: AVAudioEngine?
     private var audioSamples: [Float] = []
@@ -224,7 +222,7 @@ class AppState: ObservableObject {
 
         do {
             audioSamples = []
-            audioLevels = []
+            audioLevelMeter.reset()
             let engine = AVAudioEngine()
             let sessionID = UUID()
             audioCaptureSessionID = sessionID
@@ -271,12 +269,7 @@ class AppState: ObservableObject {
                 guard let self, self.audioCaptureSessionID == sessionID else { return }
 
                 self.audioSamples.append(contentsOf: samples)
-                self.audioLevels.append(rms)
-                if self.audioLevels.count > Self.audioLevelBarCount {
-                    self.audioLevels.removeFirst(
-                        self.audioLevels.count - Self.audioLevelBarCount
-                    )
-                }
+                self.audioLevelMeter.update(rms: rms)
             }
         }
         isAudioTapInstalled = true
@@ -564,6 +557,10 @@ class AppState: ObservableObject {
         log.info("Transcribing \(samples.count) samples, engine: \(mode.transcriptionEngine.displayName), language: \(mode.language ?? "auto")")
 
         transcriptionTask = Task {
+            // Drop the completed task immediately so it cannot retain the
+            // previous recording's sample buffer until the next transcription.
+            defer { transcriptionTask = nil }
+
             do {
                 // Wait for model to finish loading (started when recording began)
                 isModelLoading = true

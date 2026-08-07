@@ -61,7 +61,7 @@ struct RecordingOverlay: View {
             .fixedSize()
             .overlay(alignment: .top) {
                 if isRecording {
-                    AudioVisualizerView(levels: appState.audioLevels)
+                    AudioVisualizerView(meter: appState.audioLevelMeter)
                         .frame(height: 19)
                         .padding(.top, 23)
                 }
@@ -77,6 +77,9 @@ struct RecordingOverlay: View {
           }
           .onAppear {
               pulse = true
+          }
+          .onDisappear {
+              pulse = false
           }
     }
 
@@ -185,17 +188,17 @@ private class ModeMenuTarget: NSObject {
 
 // MARK: - Audio Visualizer
 
-private struct AudioBar: Identifiable {
-    let id = UUID()
+private struct AudioBar {
     let level: Float
     let birthTime: Date
 }
 
 private struct AudioVisualizerView: View {
-    let levels: [Float]
+    @ObservedObject var meter: AudioLevelMeter
     private let barWidth: CGFloat = 2.5
     private let minBarHeight: CGFloat = 2.5
     private let travelDuration: TimeInterval = 3.0 // seconds to cross the view
+    private let maximumBarCount = 180
 
     @State private var bars: [AudioBar] = []
 
@@ -218,7 +221,6 @@ private struct AudioVisualizerView: View {
                         let eased = easeInOut(Float(progress))
                         let x = width * (1 - CGFloat(eased)) - barWidth / 2
                         let barHeight = max(minBarHeight, CGFloat(bar.level) * maxHeight)
-                        let y = (maxHeight - barHeight) / 2
 
                         // Edge proximity (0 at edge, 1 in center)
                         let posNorm = x / width
@@ -246,16 +248,24 @@ private struct AudioVisualizerView: View {
                 .frame(width: width, height: maxHeight)
             }
         }
-        .onChange(of: levels) {
+        .onChange(of: meter.event) { _, event in
             let now = Date.now
 
-            // Spawn one bar for the newest sample
-            if let last = levels.last {
-                bars.append(AudioBar(level: normalizeLevel(last), birthTime: now))
+            switch event {
+            case .reset:
+                bars.removeAll(keepingCapacity: true)
+            case .level(_, let rms):
+                bars.append(AudioBar(level: normalizeLevel(rms), birthTime: now))
             }
 
             // Prune bars that have exited
             bars.removeAll { now.timeIntervalSince($0.birthTime) > travelDuration }
+            if bars.count > maximumBarCount {
+                bars.removeFirst(bars.count - maximumBarCount)
+            }
+        }
+        .onDisappear {
+            bars.removeAll(keepingCapacity: false)
         }
     }
 
