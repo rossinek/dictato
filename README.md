@@ -13,7 +13,7 @@ Raw audio is not sent to a transcription service. When cloud post-processing is 
   - [FluidAudio](https://github.com/FluidInference/FluidAudio) with Parakeet TDT V3.
   - [WhisperKit](https://github.com/argmaxinc/WhisperKit) with Whisper Large V3 Turbo.
 - Configurable global shortcuts for toggling recording and reusing the latest transcript.
-- Automatic paste at the current cursor, with optional clipboard restoration.
+- Automatic paste at the current cursor, with optional clipboard restoration and per-application shortcut overrides.
 - Pause, resume, discard, cancel, and failed-recording recovery controls.
 - Audio-file import from the menu bar.
 - Models are downloaded explicitly from Settings. Loading starts in the background while recording.

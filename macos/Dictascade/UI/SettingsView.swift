@@ -1,5 +1,6 @@
 import SwiftUI
 import KeyboardShortcuts
+import UniformTypeIdentifiers
 
 struct SettingsView: View {
     @ObservedObject private var appState = AppState.shared
@@ -11,6 +12,7 @@ struct SettingsView: View {
     @AppStorage("autoPaste") private var autoPaste = true
     @AppStorage("restoreClipboard") private var restoreClipboard = true
     @State private var pendingConflictItem: PendingConflict?
+    @State private var applicationPasteExceptions = ApplicationPasteExceptionStore.load()
 
     fileprivate static let languages: [(String?, String)] = [
         (nil, "Auto-detect"),
@@ -128,7 +130,37 @@ struct SettingsView: View {
                     }
                 }
                 if hasAccessibility && autoPaste {
-                  Toggle("Restore clipboard after paste", isOn: $restoreClipboard)
+                    Toggle("Restore clipboard after paste", isOn: $restoreClipboard)
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Application-specific shortcuts")
+                                    .font(.callout.weight(.medium))
+                                Text("Use a different paste shortcut when a selected application is focused.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            Spacer()
+
+                            Button {
+                                addApplicationPasteException()
+                            } label: {
+                                Label("Add Application Exception", systemImage: "plus")
+                            }
+                            .controlSize(.small)
+                        }
+
+                        ForEach(applicationPasteExceptions) { exception in
+                            ApplicationPasteExceptionRow(
+                                exception: exception,
+                                onDelete: {
+                                    removeApplicationPasteException(exception)
+                                }
+                            )
+                        }
+                    }
                 }
             }
 
@@ -205,6 +237,103 @@ struct SettingsView: View {
                 pendingConflictItem = nil
             }
         }
+    }
+
+    private func addApplicationPasteException() {
+        let panel = NSOpenPanel()
+        panel.title = "Choose an Application"
+        panel.prompt = "Add Application"
+        panel.directoryURL = URL(fileURLWithPath: "/Applications", isDirectory: true)
+        panel.allowedContentTypes = [.applicationBundle]
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.treatsFilePackagesAsDirectories = false
+
+        guard panel.runModal() == .OK,
+              let applicationURL = panel.url,
+              let bundle = Bundle(url: applicationURL),
+              let bundleIdentifier = bundle.bundleIdentifier else {
+            return
+        }
+
+        let applicationName =
+            bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+            ?? bundle.object(forInfoDictionaryKey: "CFBundleName") as? String
+            ?? applicationURL.deletingPathExtension().lastPathComponent
+
+        let exception = ApplicationPasteException(
+            bundleIdentifier: bundleIdentifier,
+            applicationName: applicationName,
+            applicationPath: applicationURL.path
+        )
+
+        if let index = applicationPasteExceptions.firstIndex(where: {
+            $0.bundleIdentifier == bundleIdentifier
+        }) {
+            applicationPasteExceptions[index] = exception
+        } else {
+            applicationPasteExceptions.append(exception)
+            applicationPasteExceptions.sort {
+                $0.applicationName.localizedCaseInsensitiveCompare($1.applicationName) == .orderedAscending
+            }
+        }
+
+        ApplicationPasteExceptionStore.save(applicationPasteExceptions)
+    }
+
+    private func removeApplicationPasteException(_ exception: ApplicationPasteException) {
+        KeyboardShortcuts.setShortcut(nil, for: exception.shortcutName)
+        applicationPasteExceptions.removeAll { $0.bundleIdentifier == exception.bundleIdentifier }
+        ApplicationPasteExceptionStore.save(applicationPasteExceptions)
+    }
+}
+
+// MARK: - Application Paste Exceptions
+
+private struct ApplicationPasteExceptionRow: View {
+    let exception: ApplicationPasteException
+    let onDelete: () -> Void
+
+    private var applicationURL: URL? {
+        NSWorkspace.shared.urlForApplication(withBundleIdentifier: exception.bundleIdentifier)
+            ?? URL(fileURLWithPath: exception.applicationPath)
+    }
+
+    private var applicationIcon: NSImage {
+        guard let applicationURL else {
+            return NSImage(systemSymbolName: "app", accessibilityDescription: nil) ?? NSImage()
+        }
+        return NSWorkspace.shared.icon(forFile: applicationURL.path)
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(nsImage: applicationIcon)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 28, height: 28)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(exception.applicationName)
+                    .lineLimit(1)
+                Text(exception.bundleIdentifier)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            KeyboardShortcuts.Recorder(for: exception.shortcutName)
+
+            Button(role: .destructive, action: onDelete) {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.plain)
+            .help("Remove application exception")
+        }
+        .padding(.vertical, 2)
     }
 }
 
@@ -700,4 +829,3 @@ private struct ModeRow: View {
         }
     }
 }
-

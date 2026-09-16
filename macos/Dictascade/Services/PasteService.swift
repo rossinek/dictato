@@ -1,5 +1,6 @@
 import AppKit
 import CoreGraphics
+import KeyboardShortcuts
 import os
 
 private let log = Logger(subsystem: "com.dictascade.app", category: "PasteService")
@@ -32,7 +33,7 @@ final class PasteService: NSObject, NSPasteboardItemDataProvider {
             pasteboard.clearContents()
             pasteboard.setString(text, forType: .string)
             if autoPaste {
-                Self.simulateCmdV()
+                Self.simulatePasteShortcut()
             } else {
                 log.info("Text copied to clipboard (auto-paste disabled)")
             }
@@ -63,7 +64,7 @@ final class PasteService: NSObject, NSPasteboardItemDataProvider {
             return
         }
 
-        Self.simulateCmdV()
+        Self.simulatePasteShortcut()
 
         // Safety timeout: restore after 2s if callback never fires
         let timeout = DispatchWorkItem { [weak instance] in
@@ -123,23 +124,55 @@ final class PasteService: NSObject, NSPasteboardItemDataProvider {
         cleanup()
     }
 
-    private static func simulateCmdV() {
+    private static func simulatePasteShortcut() {
         guard PermissionsService.hasAccessibilityAccess else {
             log.warning("No accessibility access — text copied to clipboard but cannot auto-paste")
             return
         }
 
+        let shortcut = resolvedPasteShortcut()
         let source = CGEventSource(stateID: .hidSystemState)
+        let keyCode = CGKeyCode(truncatingIfNeeded: shortcut.carbonKeyCode)
+        let flags = cgEventFlags(from: shortcut.modifiers)
 
-        let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: true) // 0x09 = 'v'
-        keyDown?.flags = .maskCommand
+        let keyDown = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true)
+        keyDown?.flags = flags
         keyDown?.post(tap: .cghidEventTap)
 
-        let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: false)
-        keyUp?.flags = .maskCommand
+        let keyUp = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false)
+        keyUp?.flags = flags
         keyUp?.post(tap: .cghidEventTap)
 
-        log.info("Pasted text via Cmd+V")
+        log.info("Invoked paste shortcut: \(String(describing: shortcut), privacy: .public)")
+    }
+
+    private static func resolvedPasteShortcut() -> KeyboardShortcuts.Shortcut {
+        let defaultShortcut = KeyboardShortcuts.Shortcut(.v, modifiers: .command)
+
+        guard let bundleIdentifier = NSWorkspace.shared.frontmostApplication?.bundleIdentifier,
+              let exception = ApplicationPasteExceptionStore.exception(for: bundleIdentifier),
+              let customShortcut = KeyboardShortcuts.getShortcut(for: exception.shortcutName) else {
+            return defaultShortcut
+        }
+
+        log.info(
+            "Using custom paste shortcut for \(exception.applicationName, privacy: .public) (\(bundleIdentifier, privacy: .public))"
+        )
+        return customShortcut
+    }
+
+    private static func cgEventFlags(
+        from modifiers: NSEvent.ModifierFlags
+    ) -> CGEventFlags {
+        var flags: CGEventFlags = []
+        if modifiers.contains(.capsLock) { flags.insert(.maskAlphaShift) }
+        if modifiers.contains(.shift) { flags.insert(.maskShift) }
+        if modifiers.contains(.control) { flags.insert(.maskControl) }
+        if modifiers.contains(.option) { flags.insert(.maskAlternate) }
+        if modifiers.contains(.command) { flags.insert(.maskCommand) }
+        if modifiers.contains(.numericPad) { flags.insert(.maskNumericPad) }
+        if modifiers.contains(.function) { flags.insert(.maskSecondaryFn) }
+        return flags
     }
 
     private func cleanup() {
