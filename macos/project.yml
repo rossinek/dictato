@@ -11,7 +11,8 @@ packages:
     from: "0.9.0"
   FluidAudio:
     url: https://github.com/FluidInference/FluidAudio.git
-    exactVersion: "0.13.4"
+    # Pin the verified FluidAudio revision for reproducible builds.
+    revision: "6f7938938f1580d1abee28dd980b5f79da5f794c"
   KeyboardShortcuts:
     url: https://github.com/sindresorhus/KeyboardShortcuts.git
     from: "2.0.0"
@@ -39,3 +40,27 @@ targets:
       - package: WhisperKit
       - package: FluidAudio
       - package: KeyboardShortcuts
+
+  VocabularyPolicyTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - DictascadeTests
+      - Dictascade/Services/VocabularyPolicy.swift
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_VERSION: "5.9"
+    dependencies:
+      - package: FluidAudio
+
+  PasteboardTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - PasteboardTests
+      - Dictascade/Services/PasteboardTransaction.swift
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_VERSION: "5.9"

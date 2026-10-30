@@ -466,7 +466,7 @@ private struct ModelRow: View {
                 HStack(spacing: 6) {
                     Text(engine.displayName)
                         .font(.body.bold())
-                    if engine == .fluidAudio {
+                    if engine == .parakeetUltra {
                         Text("Recommended")
                             .font(.caption2.weight(.medium))
                             .padding(.horizontal, 6)

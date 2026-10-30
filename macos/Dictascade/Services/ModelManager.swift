@@ -6,15 +6,30 @@ import WhisperKit
 private let log = Logger(subsystem: "com.dictascade.app", category: "ModelManager")
 
 enum TranscriptionEngine: String, Codable, CaseIterable, Identifiable {
+    case parakeetUltra
     case fluidAudio
     case whisperKit
 
     var id: String { rawValue }
 
+    static func fromPersistedValue(_ value: String) -> TranscriptionEngine? {
+        value == "lfm3Audio" ? .parakeetUltra : TranscriptionEngine(rawValue: value)
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let value = try container.decode(String.self)
+        guard let engine = Self.fromPersistedValue(value) else {
+            throw DecodingError.dataCorruptedError(in: container, debugDescription: "Unknown transcription engine: \(value)")
+        }
+        self = engine
+    }
+
     var displayName: String {
         switch self {
         case .whisperKit: "Whisper Large V3 Turbo"
         case .fluidAudio: "Parakeet TDT V3"
+        case .parakeetUltra: "Parakeet Ultra"
         }
     }
 
@@ -22,13 +37,14 @@ enum TranscriptionEngine: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .whisperKit: "OpenAI — via WhisperKit"
         case .fluidAudio: "Nvidia — via FluidAudio"
+        case .parakeetUltra: "Nvidia — via FluidAudio · ~630 MB"
         }
     }
 
     var keepLoaded: Bool {
         switch self {
         case .whisperKit: false
-        case .fluidAudio: true
+        case .fluidAudio, .parakeetUltra: true
         }
     }
 }
@@ -76,6 +92,7 @@ class ModelManager: ObservableObject {
     private var customVocabularyContext: CustomVocabularyContext?
 
     init() {
+        removeRetiredModelFiles()
         checkExistingDownloads()
     }
 
@@ -94,13 +111,16 @@ class ModelManager: ObservableObject {
     // MARK: - Download
 
     func download(_ engine: TranscriptionEngine) async {
-        guard statuses[engine] != .downloading(progress: nil) else { return }
+        switch status(for: engine) {
+        case .downloading, .compiling, .loading, .downloaded: return
+        default: break
+        }
 
         switch engine {
         case .whisperKit:
             await downloadWhisperKit()
-        case .fluidAudio:
-            await downloadFluidAudio()
+        case .fluidAudio, .parakeetUltra:
+            await downloadFluidAudio(engine)
         }
     }
 
@@ -153,18 +173,16 @@ class ModelManager: ObservableObject {
         }
     }
 
-    private func downloadFluidAudio() async {
-        statuses[.fluidAudio] = .downloading(progress: nil)
+    private func downloadFluidAudio(_ engine: TranscriptionEngine) async {
+        statuses[engine] = .downloading(progress: nil)
         do {
-            let directory = fluidAudioModelDirectory
+            let directory = parakeetDirectory(for: engine)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            // force: true ensures re-download even if partial/stale files exist
-            _ = try await AsrModels.download(to: directory, force: true, version: .v3)
-            statuses[.fluidAudio] = .downloaded
-            log.info("FluidAudio model downloaded")
+            _ = try await AsrModels.download(to: directory, version: parakeetVersion(for: engine))
+            statuses[engine] = .downloaded
         } catch {
-            statuses[.fluidAudio] = .error(error.localizedDescription)
-            log.error("FluidAudio download failed: \(error)")
+            statuses[engine] = .error(error.localizedDescription)
+            log.error("Parakeet download failed: \(error)")
         }
     }
 
@@ -183,8 +201,8 @@ class ModelManager: ObservableObject {
                     try FileManager.default.removeItem(at: base)
                 }
                 whisperModelFolder = nil
-            case .fluidAudio:
-                let dir = fluidAudioModelDirectory
+            case .fluidAudio, .parakeetUltra:
+                let dir = parakeetDirectory(for: engine)
                 if FileManager.default.fileExists(atPath: dir.path) {
                     try FileManager.default.removeItem(at: dir)
                 }
@@ -210,41 +228,32 @@ class ModelManager: ObservableObject {
             return
         }
 
-        // Cancel in-progress preload if it's for a different engine
-        if let current = preloadingEngine, current != engine {
-            log.info("Preload: cancelling in-progress load of \(current.displayName)")
-            preloadTask?.cancel()
-            preloadTask = nil
-            preloadingEngine = nil
-            // Unload the previous engine if it finished loading
-            if loadedEngine == current {
-                unload(current)
-            }
-        }
+        if preloadingEngine == engine { return }
+        guard isDownloaded(engine) else { return }
 
-        // Already preloading this engine — let it continue
-        if preloadingEngine == engine {
-            log.info("Preload: \(engine.displayName) already loading, continuing")
-            return
-        }
-
-        guard isDownloaded(engine) else {
-            log.warning("Preload: \(engine.displayName) not downloaded, skipping")
-            return
-        }
-
+        // Serialize model loads: cancelled Core ML work may still be finishing.
+        let previousTask = preloadTask
+        cancelPreload()
+        if let current = loadedEngine { unload(current) }
         preloadingEngine = engine
         statuses[engine] = .loading
-        log.info("Preload: starting load of \(engine.displayName)")
 
         preloadTask = Task {
-            try await loadEngine(engine)
-            try Task.checkCancellation()
-            await MainActor.run {
-                self.loadedEngine = engine
-                self.preloadingEngine = nil
-                self.statuses[engine] = .downloaded
-                log.info("Preload: \(engine.displayName) loaded successfully")
+            _ = try? await previousTask?.value
+            do {
+                try Task.checkCancellation()
+                try await loadEngine(engine)
+                try Task.checkCancellation()
+                loadedEngine = engine
+                preloadingEngine = nil
+                statuses[engine] = .downloaded
+            } catch {
+                unload(engine)
+                if !Task.isCancelled {
+                    preloadingEngine = nil
+                    statuses[engine] = .error(error.localizedDescription)
+                }
+                throw error
             }
         }
     }
@@ -258,6 +267,7 @@ class ModelManager: ObservableObject {
         }
         log.info("Awaiting model load...")
         try await task.value
+        guard loadedEngine != nil else { throw ModelError.noModelLoaded }
     }
 
     /// Transcribe with whatever engine is currently loaded.
@@ -270,8 +280,9 @@ class ModelManager: ObservableObject {
         switch engine {
         case .whisperKit:
             return try await transcribeWithWhisperKit(samples: samples, language: language)
-        case .fluidAudio:
+        case .fluidAudio, .parakeetUltra:
             return try await transcribeWithFluidAudio(samples: samples)
+
         }
     }
 
@@ -286,7 +297,6 @@ class ModelManager: ObservableObject {
         if let engine = preloadingEngine {
             log.info("Cancelling preload of \(engine.displayName)")
             preloadTask?.cancel()
-            preloadTask = nil
             preloadingEngine = nil
             statuses[engine] = .downloaded
         }
@@ -298,8 +308,9 @@ class ModelManager: ObservableObject {
         switch engine {
         case .whisperKit:
             try await loadWhisperKit()
-        case .fluidAudio:
-            try await loadFluidAudio()
+        case .fluidAudio, .parakeetUltra:
+            try await loadFluidAudio(engine)
+
         }
     }
 
@@ -326,22 +337,22 @@ class ModelManager: ObservableObject {
                 download: false
             )
         )
+        try Task.checkCancellation()
         whisperKit = kit
     }
 
-    private func loadFluidAudio() async throws {
-        let directory = fluidAudioModelDirectory
-        let models = try await AsrModels.load(from: directory, version: .v3)
+    private func loadFluidAudio(_ engine: TranscriptionEngine) async throws {
+        let directory = parakeetDirectory(for: engine)
+        let models = try await AsrModels.load(from: directory, version: parakeetVersion(for: engine))
         let manager = AsrManager(config: .default)
-        try await manager.initialize(models: models)
+        try await manager.loadModels(models)
+        try Task.checkCancellation()
         asrManager = manager
 
         // Apply vocabulary boosting if configured
         let vocab = UserDefaults.standard.string(forKey: "vocabulary") ?? ""
         if !vocab.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            await MainActor.run {
-                configureVocabulary(vocab)
-            }
+            configureVocabulary(vocab)
         }
     }
 
@@ -368,7 +379,8 @@ class ModelManager: ObservableObject {
             throw ModelError.noModelLoaded
         }
 
-        let result = try await manager.transcribe(samples, source: .system)
+        var decoderState = TdtDecoderState.make(decoderLayers: await manager.decoderLayerCount)
+        let result = try await manager.transcribe(samples, decoderState: &decoderState)
         var text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
 
         // Apply vocabulary rescoring if configured
@@ -387,7 +399,7 @@ class ModelManager: ObservableObject {
                         tokenTimings: tokenTimings,
                         logProbs: spotResult.logProbs,
                         frameDuration: spotResult.frameDuration,
-                        minSimilarity: 0.85
+                        minSimilarity: VocabularyPolicy.minSimilarity
                     )
                     if rescoreOutput.wasModified {
                         text = rescoreOutput.text
@@ -406,7 +418,7 @@ class ModelManager: ObservableObject {
         switch engine {
         case .whisperKit:
             whisperKit = nil
-        case .fluidAudio:
+        case .fluidAudio, .parakeetUltra:
             asrManager = nil
             ctcSpotter = nil
             vocabularyRescorer = nil
@@ -462,6 +474,7 @@ class ModelManager: ObservableObject {
                 let rescorer = try await VocabularyRescorer.create(
                     spotter: spotter,
                     vocabulary: vocab,
+                    config: VocabularyPolicy.rescoringConfig,
                     ctcModelDirectory: ctcModelDir
                 )
 
@@ -521,8 +534,26 @@ class ModelManager: ObservableObject {
         appSupportDirectory.appendingPathComponent("Models", isDirectory: true)
     }
 
-    private var fluidAudioModelDirectory: URL {
-        appSupportDirectory.appendingPathComponent("FluidAudio", isDirectory: true)
+    private func parakeetDirectory(for engine: TranscriptionEngine) -> URL {
+        // AsrModels resolves a repo-named sibling of the supplied directory.
+        // Use that actual location for download, detection and deletion alike.
+        let repo: Repo = engine == .parakeetUltra ? .parakeetUltra : .parakeetV3
+        return appSupportDirectory.appendingPathComponent(repo.folderName, isDirectory: true)
+    }
+
+    private func parakeetVersion(for engine: TranscriptionEngine) -> AsrModelVersion {
+        engine == .parakeetUltra ? .ultra : .v3
+    }
+
+    /// LFM3 was retired; remove only its app-owned download, never shared caches.
+    private func removeRetiredModelFiles() {
+        let directory = appSupportDirectory.appendingPathComponent("LFM3Audio", isDirectory: true)
+        guard FileManager.default.fileExists(atPath: directory.path) else { return }
+        do {
+            try FileManager.default.removeItem(at: directory)
+        } catch {
+            log.error("Could not remove retired LFM3 download: \(error)")
+        }
     }
 
     // MARK: - Checks
@@ -536,14 +567,12 @@ class ModelManager: ObservableObject {
             statuses[.whisperKit] = .notDownloaded
         }
 
-        // FluidAudio: use library's built-in check
-        let fluidDir = fluidAudioModelDirectory
-        if AsrModels.modelsExist(at: fluidDir, version: .v3) {
-            statuses[.fluidAudio] = .downloaded
-            log.info("Found existing FluidAudio model")
-        } else {
-            statuses[.fluidAudio] = .notDownloaded
+        for engine in [TranscriptionEngine.fluidAudio, .parakeetUltra] {
+            statuses[engine] = AsrModels.modelsExist(
+                at: parakeetDirectory(for: engine), version: parakeetVersion(for: engine)
+            ) ? .downloaded : .notDownloaded
         }
+
     }
 
     private func findWhisperModelFolder() -> URL? {

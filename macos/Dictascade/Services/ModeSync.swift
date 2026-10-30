@@ -150,7 +150,7 @@ final class ModeSync {
         // Start with remote order
         var result: [TranscriptionMode] = remote.map { shared in
             let engine: TranscriptionEngine
-            if let raw = engineMap[shared.id.uuidString], let mapped = TranscriptionEngine(rawValue: raw) {
+            if let raw = engineMap[shared.id.uuidString], let mapped = TranscriptionEngine.fromPersistedValue(raw) {
                 engine = mapped
             } else if let existing = localByID[shared.id] {
                 engine = existing.transcriptionEngine
@@ -191,7 +191,7 @@ final class ModeSync {
         let map = UserDefaults.standard.dictionary(forKey: engineMapKey) as? [String: String] ?? [:]
         return sharedModes.map { shared in
             let engine: TranscriptionEngine
-            if let raw = map[shared.id.uuidString], let mapped = TranscriptionEngine(rawValue: raw) {
+            if let raw = map[shared.id.uuidString], let mapped = TranscriptionEngine.fromPersistedValue(raw) {
                 engine = mapped
             } else {
                 engine = .fluidAudio
