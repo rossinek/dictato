@@ -101,6 +101,8 @@ macos/Dictascade/
 
 ### Known Issues / Dev Notes
 
+- **Automatic paste regression:** Before changing synthetic keyboard events or clipboard restoration, read [docs/automatic-paste.md](docs/automatic-paste.md) and run `PasteboardTests`. Never leave synthetic shortcut modifiers on the final key-up.
+
 - **Slow first model download:** WhisperKit prewarming compiles the CoreML model during download (~2-3 min). Cached after that, but cache is invalidated by code signature changes (every Xcode rebuild). FluidAudio has a similar first-load compilation cost.
 - **Accessibility permissions:** Tied to code signature. After rebuilding, you may need to re-add the app in System Settings > Privacy & Security > Accessibility.
 - **Sandbox disabled:** Entitlements file is empty for development. Needs proper sandbox + hardened runtime for distribution.

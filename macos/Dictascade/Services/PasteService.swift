@@ -113,19 +113,16 @@ final class PasteService {
         guard PermissionsService.hasAccessibilityAccess else { return false }
         let shortcut = resolvedPasteShortcut()
         let keyCode = CGKeyCode(truncatingIfNeeded: shortcut.carbonKeyCode)
-        guard let source = CGEventSource(stateID: .combinedSessionState),
-              let keyDown = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true),
-              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false) else {
+        guard let events = PasteShortcutEvents.make(
+            keyCode: keyCode, modifiers: cgEventFlags(from: shortcut.modifiers)
+        ) else {
             log.error("Could not create paste shortcut events")
             return false
         }
-        let flags = cgEventFlags(from: shortcut.modifiers)
-        keyDown.flags = flags
-        keyUp.flags = flags
-        keyDown.post(tap: .cghidEventTap)
+        events.down.post(tap: .cghidEventTap)
         // Always release the key, including when a newer paste cancels this task.
         try? await Task.sleep(for: .milliseconds(20))
-        keyUp.post(tap: .cghidEventTap)
+        events.up.post(tap: .cghidEventTap)
         log.info("Sent paste shortcut to \(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "unknown", privacy: .public)")
         return true
     }
