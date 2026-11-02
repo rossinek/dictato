@@ -61,6 +61,8 @@ targets:
       - PasteboardTests
       - Dictascade/Services/PasteboardTransaction.swift
       - Dictascade/Services/PasteShortcutEvents.swift
+      - Dictascade/Services/ChromiumEngineDetector.swift
+      - Dictascade/Services/KeyboardTyper.swift
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES

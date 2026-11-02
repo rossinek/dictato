@@ -50,7 +50,7 @@ xcodebuild -project Dictascade.xcodeproj -scheme Dictascade -destination 'platfo
 3. Model preloading begins in the background when recording starts (via `ModelManager.preload()`)
 4. If the user changes modes mid-recording, the previous model load is cancelled and the new one starts
 5. On stop, `AppState` awaits model load completion, then passes accumulated `[Float]` samples to the loaded engine
-6. Result is pasted at cursor via `PasteService` (CGEvent Cmd+V simulation)
+6. Result is inserted at the cursor via `PasteService`: clipboard + CGEvent Cmd+V, or Unicode typing (`KeyboardTyper`) for Chromium 155–156 browsers and apps set to "Type" (see docs/automatic-paste.md)
 7. Model is unloaded from RAM after transcription
 8. Transcription is saved to history
 
@@ -78,6 +78,8 @@ macos/Dictascade/
 │   ├── ModelManager.swift        # Multi-engine abstraction (WhisperKit + FluidAudio)
 │   ├── LLMService.swift          # OpenAI/Groq post-processing
 │   ├── PasteService.swift        # Clipboard + CGEvent Cmd+V
+│   ├── KeyboardTyper.swift       # Unicode typing fallback (no clipboard)
+│   ├── ChromiumEngineDetector.swift # Detects Chromium 155–156 (drops synthetic pastes)
 │   └── PermissionsService.swift  # Mic & accessibility permission checks
 ├── Shortcuts/
 │   └── GlobalShortcut.swift      # KeyboardShortcuts.Name definition
@@ -101,7 +103,7 @@ macos/Dictascade/
 
 ### Known Issues / Dev Notes
 
-- **Automatic paste regression:** Before changing synthetic keyboard events or clipboard restoration, read [docs/automatic-paste.md](docs/automatic-paste.md) and run `PasteboardTests`. Never leave synthetic shortcut modifiers on the final key-up.
+- **Automatic paste regression:** Before changing synthetic keyboard events or clipboard restoration, read [docs/automatic-paste.md](docs/automatic-paste.md) and run `PasteboardTests`. Never leave synthetic shortcut modifiers on the final key-up. Test paste changes across apps with `scripts/paste-harness`.
 
 - **Slow first model download:** WhisperKit prewarming compiles the CoreML model during download (~2-3 min). Cached after that, but cache is invalidated by code signature changes (every Xcode rebuild). FluidAudio has a similar first-load compilation cost.
 - **Accessibility permissions:** Tied to code signature. After rebuilding, you may need to re-add the app in System Settings > Privacy & Security > Accessibility.

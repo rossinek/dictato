@@ -1,12 +1,52 @@
 import Foundation
 import KeyboardShortcuts
 
+/// How transcribed text is inserted into an application.
+enum TextInsertionMethod: String, Codable, CaseIterable, Identifiable {
+    /// Paste, except type into engines known to drop automatic pastes (Chromium 155–156).
+    case automatic
+    case paste
+    case type
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .automatic: "Automatic"
+        case .paste: "Paste"
+        case .type: "Type"
+        }
+    }
+}
+
 struct ApplicationPasteException: Codable, Identifiable, Equatable {
     let bundleIdentifier: String
     var applicationName: String
     var applicationPath: String
+    var insertionMethod: TextInsertionMethod = .automatic
 
     var id: String { bundleIdentifier }
+
+    init(
+        bundleIdentifier: String,
+        applicationName: String,
+        applicationPath: String,
+        insertionMethod: TextInsertionMethod = .automatic
+    ) {
+        self.bundleIdentifier = bundleIdentifier
+        self.applicationName = applicationName
+        self.applicationPath = applicationPath
+        self.insertionMethod = insertionMethod
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        bundleIdentifier = try container.decode(String.self, forKey: .bundleIdentifier)
+        applicationName = try container.decode(String.self, forKey: .applicationName)
+        applicationPath = try container.decode(String.self, forKey: .applicationPath)
+        // Exceptions saved before v1.5.2 have no insertion method.
+        insertionMethod = (try? container.decodeIfPresent(TextInsertionMethod.self, forKey: .insertionMethod)) ?? .automatic
+    }
 
     var shortcutName: KeyboardShortcuts.Name {
         KeyboardShortcuts.Name("applicationPasteException.\(bundleIdentifier)")

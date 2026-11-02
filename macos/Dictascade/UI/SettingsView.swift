@@ -135,9 +135,9 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("Application-specific shortcuts")
+                                Text("Application-specific insertion")
                                     .font(.callout.weight(.medium))
-                                Text("Use a different paste shortcut when a selected application is focused.")
+                                Text("Choose how text is inserted, or use a different paste shortcut, for a selected application. Automatic types into browsers built on Chromium 155–156, which drop automatic pastes.")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -155,6 +155,9 @@ struct SettingsView: View {
                         ForEach(applicationPasteExceptions) { exception in
                             ApplicationPasteExceptionRow(
                                 exception: exception,
+                                onMethodChange: { method in
+                                    updateInsertionMethod(method, for: exception)
+                                },
                                 onDelete: {
                                     removeApplicationPasteException(exception)
                                 }
@@ -262,7 +265,7 @@ struct SettingsView: View {
             ?? bundle.object(forInfoDictionaryKey: "CFBundleName") as? String
             ?? applicationURL.deletingPathExtension().lastPathComponent
 
-        let exception = ApplicationPasteException(
+        var exception = ApplicationPasteException(
             bundleIdentifier: bundleIdentifier,
             applicationName: applicationName,
             applicationPath: applicationURL.path
@@ -271,6 +274,7 @@ struct SettingsView: View {
         if let index = applicationPasteExceptions.firstIndex(where: {
             $0.bundleIdentifier == bundleIdentifier
         }) {
+            exception.insertionMethod = applicationPasteExceptions[index].insertionMethod
             applicationPasteExceptions[index] = exception
         } else {
             applicationPasteExceptions.append(exception)
@@ -279,6 +283,17 @@ struct SettingsView: View {
             }
         }
 
+        ApplicationPasteExceptionStore.save(applicationPasteExceptions)
+    }
+
+    private func updateInsertionMethod(
+        _ method: TextInsertionMethod,
+        for exception: ApplicationPasteException
+    ) {
+        guard let index = applicationPasteExceptions.firstIndex(where: {
+            $0.bundleIdentifier == exception.bundleIdentifier
+        }) else { return }
+        applicationPasteExceptions[index].insertionMethod = method
         ApplicationPasteExceptionStore.save(applicationPasteExceptions)
     }
 
@@ -293,6 +308,7 @@ struct SettingsView: View {
 
 private struct ApplicationPasteExceptionRow: View {
     let exception: ApplicationPasteException
+    let onMethodChange: (TextInsertionMethod) -> Void
     let onDelete: () -> Void
 
     private var applicationURL: URL? {
@@ -325,7 +341,21 @@ private struct ApplicationPasteExceptionRow: View {
 
             Spacer()
 
+            Picker("Insertion method", selection: Binding(
+                get: { exception.insertionMethod },
+                set: onMethodChange
+            )) {
+                ForEach(TextInsertionMethod.allCases) { method in
+                    Text(method.title).tag(method)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .fixedSize()
+            .help("Automatic pastes, except in browsers that drop automatic pastes. Type sends text as keystrokes without using the clipboard.")
+
             KeyboardShortcuts.Recorder(for: exception.shortcutName)
+                .disabled(exception.insertionMethod == .type)
 
             Button(role: .destructive, action: onDelete) {
                 Image(systemName: "trash")
