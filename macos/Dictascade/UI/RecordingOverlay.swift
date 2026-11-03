@@ -19,6 +19,7 @@ struct RecordingOverlay: View {
     }
 
     private static let microphoneLabelHeight: CGFloat = 11
+    private static let visualizerOverflow: CGFloat = 18
     private static let microphoneLabelSpacing: CGFloat = 4
 
     private var topPadding: CGFloat { microphoneName == nil ? 20 : 4 }
@@ -88,9 +89,11 @@ struct RecordingOverlay: View {
             .fixedSize()
             .overlay(alignment: .top) {
                 if isRecording {
-                    AudioVisualizerView(meter: appState.audioLevelMeter)
-                        .frame(height: 19)
-                        .padding(.top, visualizerTopPadding)
+                    // The canvas extends beyond the 19 pt band so enlarged edge bars are
+                    // not cut off at the band; the pill's capsule shape clips them.
+                    AudioVisualizerView(meter: appState.audioLevelMeter, bandHeight: 19)
+                        .frame(height: 19 + 2 * Self.visualizerOverflow)
+                        .padding(.top, visualizerTopPadding - Self.visualizerOverflow)
                 }
             }
             .clipShape(.capsule)
@@ -215,97 +218,107 @@ private class ModeMenuTarget: NSObject {
 
 // MARK: - Audio Visualizer
 
-private struct AudioBar {
-    let level: Float
-    let birthTime: Date
-}
-
+/// Scrolling level bars. Bars sit on a fixed audio-time grid and move at constant
+/// speed along a virtual track, so timing does not depend on how audio buffers
+/// arrive; each bar shows the mean level of its interval. The track is mapped onto
+/// the pill so the middle has constant spacing and speed, while in the edge zones
+/// (`edgeZone` of the width on each side) spacing and speed grow toward the edge
+/// (bars slow down after entering and speed up before leaving) and bars are
+/// enlarged. Drawing runs slightly behind the audio.
 private struct AudioVisualizerView: View {
-    @ObservedObject var meter: AudioLevelMeter
+    let meter: AudioLevelMeter
+    /// Height that a full-scale bar fills; the canvas may be taller so that
+    /// enlarged edge bars can extend beyond it.
+    let bandHeight: CGFloat
     private let barWidth: CGFloat = 2.5
+    private let barPitch: CGFloat = 4.5      // bar width + gap in the middle zone
+    private let speed: CGFloat = 80          // points per second in the middle zone
+    private let edgeZone: CGFloat = 0.3      // fraction of the width on each side where bars slow down/speed up and are enlarged
+    private let edgeStretch: CGFloat = 3     // spacing/speed multiplier at the very edge
+    private let maxEdgeScale: CGFloat = 5  // bar height multiplier at the very edge
+    private let scaleCurve: CGFloat = 4      // higher = enlargement concentrated closer to the edge
     private let minBarHeight: CGFloat = 2.5
-    private let travelDuration: TimeInterval = 3.0 // seconds to cross the view
-    private let maximumBarCount = 180
-
-    @State private var bars: [AudioBar] = []
+    private let latency: Double = 0.025      // seconds behind the newest audio (buffers arrive every ~11 ms)
 
     var body: some View {
-        GeometryReader { geo in
-            let maxHeight = geo.size.height
-            let width = geo.size.width
+        TimelineView(.animation) { context in
+            Canvas { ctx, size in
+                guard let head = meter.audioTime(at: context.date, latency: latency) else { return }
+                let track = Track(width: size.width, edgeZone: edgeZone, edgeStretch: edgeStretch)
+                let interval = Double(barPitch / speed)
+                let fadeZone: CGFloat = 0.15 // fraction of width for edge fade
+                var index = floor(head / interval)
 
-            TimelineView(.animation) { context in
-                let now = context.date
+                while true {
+                    let time = index * interval
+                    // Distance travelled along the track since entering at the right edge.
+                    let travelled = CGFloat(head - time) * speed
+                    if travelled > track.length { break }
+                    index -= 1
+                    guard time > 0, travelled >= 0 else { continue }
+                    // Audio not delivered yet (e.g. a Bluetooth stall) is drawn as silence
+                    // and fills in when the backlog arrives, so bars never jump.
+                    let rms = meter.level(from: time - interval, to: time) ?? 0
+                    let x = size.width - track.screenDistance(travelled)
 
-                Canvas { ctx, size in
-                    let fadeZone: CGFloat = 0.15 // fraction of width for edge fade
+                    let level = CGFloat(normalizeLevel(rms))
+                    let barHeight = max(minBarHeight, level * bandHeight)
 
-                    for bar in bars {
-                        let age = now.timeIntervalSince(bar.birthTime)
-                        let progress = age / travelDuration
-                        guard progress >= 0 && progress <= 1 else { continue }
+                    let position = x / size.width
+                    // Fade only at the exit (left) edge: new bars enter at the right
+                    // edge at full opacity so what is said now shows up immediately.
+                    let fade = position < fadeZone ? max(0, position / fadeZone) : 1
 
-                        let eased = easeInOut(Float(progress))
-                        let x = width * (1 - CGFloat(eased)) - barWidth / 2
-                        let barHeight = max(minBarHeight, CGFloat(bar.level) * maxHeight)
-
-                        // Edge proximity (0 at edge, 1 in center)
-                        let posNorm = x / width
-                        let edgeProximity: CGFloat
-                        if posNorm < fadeZone {
-                            edgeProximity = posNorm / fadeZone
-                        } else if posNorm > 1 - fadeZone {
-                            edgeProximity = (1 - posNorm) / fadeZone
-                        } else {
-                            edgeProximity = 1
-                        }
-
-                        // Vertical scale: 3x at edge, 1x in center
-                        let maxScale: CGFloat = 2.0
-                        let vScale = 1 + (maxScale - 1) * (1 - edgeProximity)
-                        let scaledHeight = barHeight * vScale
-                        let scaledY = (maxHeight - scaledHeight) / 2
-
-                        let baseOpacity = 0.3 + Double(bar.level) * 0.7
-                        let rect = CGRect(x: x, y: scaledY, width: barWidth, height: scaledHeight)
-                        let path = Path(roundedRect: rect, cornerRadius: barWidth / 2)
-                        ctx.fill(path, with: .color(.primary.opacity(baseOpacity * Double(edgeProximity))))
-                    }
+                    // Enlargement at both edges, growing exponentially toward the edge.
+                    let closeness = max(0, 1 - min(position, 1 - position) / edgeZone) // 1 at the edge
+                    let growth = (exp(scaleCurve * closeness) - 1) / (exp(scaleCurve) - 1)
+                    let scaledHeight = barHeight * (1 + (maxEdgeScale - 1) * growth)
+                    let rect = CGRect(
+                        x: x - barWidth,
+                        y: (size.height - scaledHeight) / 2,
+                        width: barWidth,
+                        height: scaledHeight
+                    )
+                    let opacity = (0.3 + Double(level) * 0.7) * Double(fade)
+                    ctx.fill(Path(roundedRect: rect, cornerRadius: barWidth / 2), with: .color(.primary.opacity(opacity)))
                 }
-                .frame(width: width, height: maxHeight)
             }
-        }
-        .onChange(of: meter.event) { _, event in
-            let now = Date.now
-
-            switch event {
-            case .reset:
-                bars.removeAll(keepingCapacity: true)
-            case .level(_, let rms):
-                bars.append(AudioBar(level: normalizeLevel(rms), birthTime: now))
-            }
-
-            // Prune bars that have exited
-            bars.removeAll { now.timeIntervalSince($0.birthTime) > travelDuration }
-            if bars.count > maximumBarCount {
-                bars.removeFirst(bars.count - maximumBarCount)
-            }
-        }
-        .onDisappear {
-            bars.removeAll(keepingCapacity: false)
         }
     }
 
-    /// Fast at edges, slow (but never zero) in middle
-    private func easeInOut(_ t: Float) -> Float {
-        // Symmetric curve: fast at 0 and 1, slowest at 0.5
-        // f(t) using smoothstep inverse concept
-        if t < 0.5 {
-            // Fast deceleration: sqrt curve (fast start, slows down)
-            return 0.5 * pow(2 * t, 0.6)
-        } else {
-            // Mirror: accelerates toward exit
-            return 1 - 0.5 * pow(2 * (1 - t), 0.6)
+    /// Maps distance along the virtual track (constant speed) to distance from the
+    /// right edge on screen. Linear in the middle; in each edge zone the slope rises
+    /// linearly from 1 at the zone boundary to `edgeStretch` at the edge, so speed
+    /// and spacing change smoothly.
+    private struct Track {
+        let middle: CGFloat     // screen width (= track length) of the middle zone
+        let zone: CGFloat       // screen width of one edge zone
+        let zoneLength: CGFloat // track length of one edge zone
+        let stretch: CGFloat
+
+        init(width: CGFloat, edgeZone: CGFloat, edgeStretch: CGFloat) {
+            zone = width * edgeZone
+            middle = width - 2 * zone
+            stretch = edgeStretch
+            // Screen width of a zone = ∫ slope = L + (stretch - 1) * L / 2.
+            zoneLength = zone / (1 + (edgeStretch - 1) / 2)
+        }
+
+        var length: CGFloat { middle + 2 * zoneLength }
+
+        /// Screen distance covered after `v` track points into a zone, from its inner boundary.
+        private func zoneDistance(_ v: CGFloat) -> CGFloat {
+            v + (stretch - 1) * v * v / (2 * zoneLength)
+        }
+
+        func screenDistance(_ travelled: CGFloat) -> CGFloat {
+            if travelled <= zoneLength {
+                return zone - zoneDistance(zoneLength - travelled)
+            }
+            if travelled <= zoneLength + middle {
+                return zone + (travelled - zoneLength)
+            }
+            return zone + middle + zoneDistance(min(travelled - zoneLength - middle, zoneLength))
         }
     }
 

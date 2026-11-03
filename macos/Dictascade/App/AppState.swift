@@ -205,10 +205,10 @@ class AppState: ObservableObject {
     // MARK: - Recording
 
     private func setupRecorder() {
-        recorder.onSamples = { [weak self] samples, rms in
+        recorder.onSamples = { [weak self] samples in
             guard let self else { return }
             self.audioSamples.append(contentsOf: samples)
-            self.audioLevelMeter.update(rms: rms)
+            self.audioLevelMeter.append(samples)
         }
         recorder.onDeviceChange = { [weak self] name in
             self?.activeInputDeviceName = name

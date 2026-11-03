@@ -12,8 +12,8 @@ private let log = Logger(subsystem: "com.dictascade.app", category: "AudioRecord
 /// itself, and keeps delivering through Bluetooth profile switches without restarts.
 @MainActor
 final class AudioRecorder {
-    /// Samples (16 kHz mono) and their RMS level.
-    var onSamples: (([Float], Float) -> Void)?
+    /// Samples (16 kHz mono).
+    var onSamples: (([Float]) -> Void)?
     /// The device changed during a recording (fail-over after a disconnect).
     var onDeviceChange: ((String) -> Void)?
     /// Capture cannot continue; the recorder has already stopped.
@@ -54,8 +54,8 @@ final class AudioRecorder {
             AVLinearPCMIsNonInterleaved: false,
             AVLinearPCMIsBigEndianKey: false,
         ]
-        let sink = SampleSink { [weak self] samples, rms in
-            Task { @MainActor [weak self] in self?.deliver(samples, rms: rms, from: session) }
+        let sink = SampleSink { [weak self] samples in
+            Task { @MainActor [weak self] in self?.deliver(samples, from: session) }
         }
         output.setSampleBufferDelegate(sink, queue: sampleQueue)
         guard session.canAddOutput(output) else { throw RecorderError.cannotUse(device.localizedName) }
@@ -168,7 +168,7 @@ final class AudioRecorder {
         }
     }
 
-    private func deliver(_ samples: [Float], rms: Float, from source: AVCaptureSession) {
+    private func deliver(_ samples: [Float], from source: AVCaptureSession) {
         // Drop late buffers from a stopped or paused session.
         guard source === session, !isPaused else { return }
         if !receivedAudio, let startTime, samples.contains(where: { abs($0) > 1e-5 }) {
@@ -176,7 +176,7 @@ final class AudioRecorder {
             let elapsed = ContinuousClock.now - startTime
             log.info("First audio after \(Int(elapsed / .milliseconds(1))) ms from \(self.deviceName ?? "unknown", privacy: .public)")
         }
-        onSamples?(samples, rms)
+        onSamples?(samples)
     }
 
     private func observe(_ session: AVCaptureSession) {
@@ -241,9 +241,9 @@ final class AudioRecorder {
 
 /// Receives capture buffers (16 kHz mono Float32, as requested in `audioSettings`).
 private final class SampleSink: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate, @unchecked Sendable {
-    private let handler: @Sendable ([Float], Float) -> Void
+    private let handler: @Sendable ([Float]) -> Void
 
-    init(handler: @escaping @Sendable ([Float], Float) -> Void) {
+    init(handler: @escaping @Sendable ([Float]) -> Void) {
         self.handler = handler
     }
 
@@ -263,8 +263,6 @@ private final class SampleSink: NSObject, AVCaptureAudioDataOutputSampleBufferDe
         guard status == noErr, let data = bufferList.mBuffers.mData else { return }
         let count = Int(bufferList.mBuffers.mDataByteSize) / MemoryLayout<Float>.size
         guard count > 0 else { return }
-        let samples = Array(UnsafeBufferPointer(start: data.assumingMemoryBound(to: Float.self), count: count))
-        let rms = sqrt(samples.reduce(Float(0)) { $0 + $1 * $1 } / Float(count))
-        handler(samples, rms)
+        handler(Array(UnsafeBufferPointer(start: data.assumingMemoryBound(to: Float.self), count: count)))
     }
 }
