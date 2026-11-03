@@ -44,10 +44,6 @@ struct SettingsView: View {
                 }
             }
 
-            if modelManager.isDownloaded(.whisperKit) {
-                WhisperAccelerationSection(modelManager: modelManager)
-            }
-
             MicrophoneSettingsSection()
 
             // Keyboard Shortcuts
@@ -495,6 +491,7 @@ private struct ModelRow: View {
     let engine: TranscriptionEngine
     @ObservedObject var modelManager: ModelManager
     @State private var showDeleteConfirmation = false
+    @State private var showWhisperSettings = false
 
     var body: some View {
         HStack {
@@ -517,6 +514,20 @@ private struct ModelRow: View {
             }
 
             Spacer()
+
+            if engine == .whisperKit, modelManager.isDownloaded(engine) {
+                Button {
+                    showWhisperSettings = true
+                } label: {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 13))
+                }
+                .buttonStyle(.borderless)
+                .help("Whisper acceleration settings")
+                .sheet(isPresented: $showWhisperSettings) {
+                    WhisperAccelerationPanel(modelManager: modelManager)
+                }
+            }
 
             statusView
         }
@@ -620,25 +631,40 @@ private struct ModelRow: View {
 
 // MARK: - Whisper Acceleration
 
-private struct WhisperAccelerationSection: View {
+/// Sheet opened from the gear button next to Whisper in the model list.
+private struct WhisperAccelerationPanel: View {
     @ObservedObject var modelManager: ModelManager
     @AppStorage(WhisperAcceleration.defaultsKey) private var selection: WhisperAcceleration = .hybrid
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        Section {
-            ForEach(WhisperAcceleration.allCases) { acceleration in
-                WhisperAccelerationOption(acceleration: acceleration, isSelected: selection == acceleration) {
-                    selection = acceleration
-                    modelManager.setWhisperAcceleration(acceleration)
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Whisper Acceleration")
+                .font(.title3.bold())
+
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(WhisperAcceleration.allCases) { acceleration in
+                    if acceleration != WhisperAcceleration.allCases.first { Divider() }
+                    WhisperAccelerationOption(acceleration: acceleration, isSelected: selection == acceleration) {
+                        selection = acceleration
+                        modelManager.setWhisperAcceleration(acceleration)
+                    }
                 }
             }
-        } header: {
-            Text("Whisper Acceleration")
-        } footer: {
+
             Text("Applies from the next recording. Whisper stays in memory for 60 s after each use, so dictation sessions start warm.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack {
+                Spacer()
+                Button("Done") { dismiss() }
+                    .keyboardShortcut(.defaultAction)
+            }
         }
+        .padding(20)
+        .frame(width: 540)
     }
 }
 
