@@ -78,3 +78,14 @@ targets:
       base:
         GENERATE_INFOPLIST_FILE: YES
         SWIFT_VERSION: "5.9"
+
+  PanelPlacementTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - PanelPlacementTests
+      - Dictascade/UI/PanelPlacement.swift
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_VERSION: "5.9"

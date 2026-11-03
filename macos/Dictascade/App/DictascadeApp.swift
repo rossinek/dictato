@@ -197,16 +197,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard size.width > 0, size.height > 0 else { return }
         let currentSize = panel.frame.size
         if abs(size.width - currentSize.width) > 1 || abs(size.height - currentSize.height) > 1 {
-            let oldMidX = panel.frame.midX
-            panel.setContentSize(size)
-            let newX = oldMidX - size.width / 2
-            panel.setFrameOrigin(NSPoint(x: newX, y: panel.frame.origin.y))
+            panel.resize(to: size)
         }
     }
 
     @MainActor
     private func hidePanel() {
-        panel?.savePosition()
         panel?.removeKeyMonitor()
 
         panel?.orderOut(nil)

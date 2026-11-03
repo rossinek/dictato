@@ -2,10 +2,6 @@ import AppKit
 import SwiftUI
 
 class FloatingPanel: NSPanel {
-    private static let offsetXKey = "panelOffsetX"
-    private static let offsetYKey = "panelOffsetY"
-    private static let positionSavedKey = "panelPositionSaved"
-
     private var globalKeyMonitor: Any?
     private var localKeyMonitor: Any?
     private var eventTap: CFMachPort?
@@ -35,7 +31,7 @@ class FloatingPanel: NSPanel {
         let hostingView = NSHostingView(rootView: contentView)
         self.contentView = hostingView
         let size = hostingView.fittingSize
-        setContentSize(size)
+        setContentSize(NSSize(width: ceil(size.width), height: ceil(size.height)))
 
         restorePosition()
 
@@ -146,17 +142,37 @@ class FloatingPanel: NSPanel {
     }
 
     private static let snapThreshold: CGFloat = 20
+    private var dragStartLocation: NSPoint?
+    private var didDragWindow = false
 
     override func sendEvent(_ event: NSEvent) {
         if event.type == .leftMouseDown {
             isDragging = true
+            dragStartLocation = event.locationInWindow
+        }
+        // On macOS 27 isMovableByWindowBackground no longer moves a window over
+        // SwiftUI (NSHostingView) content, so start the window drag explicitly once
+        // the pointer moves a few points. A plain click still reaches SwiftUI (the
+        // Finish/Pause labels and the mode pill); mouse-up still arrives afterwards,
+        // so snapping and saving the position below keep working.
+        if event.type == .leftMouseDragged, let start = dragStartLocation,
+           hypot(event.locationInWindow.x - start.x, event.locationInWindow.y - start.y) > 3 {
+            dragStartLocation = nil
+            didDragWindow = true
+            performDrag(with: event)
+            return
         }
         super.sendEvent(event)
         if event.type == .leftMouseUp {
             isDragging = false
-            if shouldSnap, let screen = screen ?? NSScreen.main {
-                let snappedX = screen.visibleFrame.midX - frame.width / 2
-                setFrameOrigin(NSPoint(x: snappedX, y: frame.origin.y))
+            dragStartLocation = nil
+            if didDragWindow {
+                didDragWindow = false
+                if shouldSnap, let screen = screen ?? NSScreen.main {
+                    let snappedX = screen.visibleFrame.midX - frame.width / 2
+                    setFrameOrigin(NSPoint(x: snappedX, y: frame.origin.y))
+                }
+                // The position is saved only here, after the user moved the panel.
                 savePosition()
             }
             hideSnapIndicators()
@@ -262,46 +278,30 @@ class FloatingPanel: NSPanel {
         shouldSnap = false
     }
 
-    func savePosition() {
+    /// Resizes around the anchor: the top edge and horizontal center stay put, so
+    /// the pill does not move when the panel grows or shrinks.
+    func resize(to size: NSSize) {
+        let top = frame.maxY
+        let midX = frame.midX
+        // Whole points: fractional SwiftUI heights (e.g. 93.5) would make the
+        // pixel-aligned top edge wobble by a point between states.
+        setContentSize(NSSize(width: ceil(size.width), height: ceil(size.height)))
+        setFrameOrigin(NSPoint(x: midX - frame.width / 2, y: top - frame.height))
+    }
+
+    private func savePosition() {
         guard let screen = screen ?? NSScreen.main else { return }
-        let screenFrame = screen.visibleFrame
-
-        let panelMidX = frame.midX
-        let panelMidY = frame.midY
-        let screenMidX = screenFrame.midX
-        let screenMidY = screenFrame.midY
-
-        let offsetX = (panelMidX - screenMidX) / screenFrame.width
-        let offsetY = (panelMidY - screenMidY) / screenFrame.height
-
-        UserDefaults.standard.set(offsetX, forKey: Self.offsetXKey)
-        UserDefaults.standard.set(offsetY, forKey: Self.offsetYKey)
-        UserDefaults.standard.set(true, forKey: Self.positionSavedKey)
+        PanelPositionStore.save(PanelPlacement.anchor(for: frame, in: screen.visibleFrame))
     }
 
+    /// Places the panel proportionally on the screen the user is working on
+    /// (`NSScreen.main`), at the anchor saved after the last drag.
     private func restorePosition() {
-        guard UserDefaults.standard.bool(forKey: Self.positionSavedKey),
-              let screen = NSScreen.main else {
-            centerOnScreen()
-            return
-        }
-
-        let screenFrame = screen.visibleFrame
-        let offsetX = UserDefaults.standard.double(forKey: Self.offsetXKey)
-        let offsetY = UserDefaults.standard.double(forKey: Self.offsetYKey)
-
-        let x = screenFrame.midX + offsetX * screenFrame.width - frame.width / 2
-        let y = screenFrame.midY + offsetY * screenFrame.height - frame.height / 2
-
-        setFrameOrigin(NSPoint(x: x, y: y))
-    }
-
-    private func centerOnScreen() {
-        guard let screen = NSScreen.main else { return }
-        let screenFrame = screen.visibleFrame
-        let x = screenFrame.midX - frame.width / 2
-        let y = screenFrame.maxY - frame.height - 80
-        setFrameOrigin(NSPoint(x: x, y: y))
+        guard let screen = NSScreen.main ?? NSScreen.screens.first else { return }
+        let visible = screen.visibleFrame
+        let anchor = PanelPositionStore.load(panelHeight: frame.height, visible: visible)
+            ?? PanelPlacement.defaultAnchor(in: visible)
+        setFrameOrigin(PanelPlacement.origin(for: frame.size, at: anchor, in: visible))
     }
 
     deinit {

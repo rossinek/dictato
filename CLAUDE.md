@@ -70,6 +70,7 @@ macos/Dictascade/
 │   └── AppIntents.swift          # Apple Shortcuts (Start Recording, Transcribe File)
 ├── UI/
 │   ├── FloatingPanel.swift       # NSPanel (non-activating, won't steal focus)
+│   ├── PanelPlacement.swift      # Overlay position: proportional top-center anchor, saved only after a drag
 │   ├── RecordingOverlay.swift    # Pill-shaped recording/transcribing indicator
 │   ├── MainWindowView.swift      # Tab-based window (History + Settings)
 │   ├── HistoryView.swift         # Past transcriptions list (click to copy)
@@ -113,6 +114,7 @@ macos/Dictascade/
 - **Accessibility permissions:** Tied to code signature. After rebuilding, you may need to re-add the app in System Settings > Privacy & Security > Accessibility.
 - **Sandbox disabled:** Entitlements file is empty for development. Needs proper sandbox + hardened runtime for distribution.
 - **Microphone capture:** Do not go back to `AVAudioEngine` for recording. Creating its input node opens the system default input first: with AirPods connected that cost ~1 s even when recording from the built-in microphone, a device bound afterwards kept the previous device's format (`-10868`) and Bluetooth profile switches raised NSExceptions from `installTap`. `AVCaptureSession` opens only the chosen device (built-in: first audio after ~80 ms with AirPods connected). Bluetooth headsets still deliver ~1.7–2.2 s of silence while switching to the headset profile; that is firmware, logged as `First audio after N ms`.
+- **Overlay panel drag & position:** On macOS 27 `isMovableByWindowBackground` no longer moves a window over SwiftUI content; `FloatingPanel.sendEvent` starts `performDrag(with:)` after 3 pt of movement (clicks still reach SwiftUI). The position is stored as a top-center anchor in fractions of the screen's visible frame (`PanelPlacement`), saved only when a drag ends — never on hide — and resizes keep the top edge fixed; this prevents drift and places the pill proportionally on any screen.
 - **State observation:** The floating panel is managed via a polling Task (100ms) watching `AppState` properties. This works but could be replaced with Combine publishers if needed.
 
 ### Adding New Features
