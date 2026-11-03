@@ -47,6 +47,9 @@ class AppState: ObservableObject {
         setupModeSync()
         loadHistory()
         cleanupOldRecordings()
+        if modes.contains(where: { $0.transcriptionEngine == .whisperKit }) {
+            modelManager.warmUpWhisperAtLaunch()
+        }
     }
 
     private func setupModeSync() {

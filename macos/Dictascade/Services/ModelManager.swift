@@ -58,6 +58,77 @@ enum TranscriptionEngine: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+/// Which compute units run Whisper (Settings → Whisper Acceleration).
+enum WhisperAcceleration: String, CaseIterable, Identifiable {
+    case hybrid
+    case neuralEngine
+    case gpu
+
+    static let defaultsKey = "whisperAcceleration"
+
+    static var current: WhisperAcceleration {
+        UserDefaults.standard.string(forKey: defaultsKey).flatMap(Self.init(rawValue:)) ?? .hybrid
+    }
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .hybrid: "Hybrid"
+        case .neuralEngine: "Neural Engine only"
+        case .gpu: "GPU only"
+        }
+    }
+
+    var summary: String {
+        switch self {
+        case .hybrid:
+            "Starts on the Neural Engine, then switches to the GPU once it has warmed up in the background."
+        case .neuralEngine:
+            "Runs entirely on the Neural Engine."
+        case .gpu:
+            "Runs entirely on the GPU."
+        }
+    }
+
+    var pros: [String] {
+        switch self {
+        case .hybrid:
+            ["Never waits for the GPU warm-up: ~1.6 s for the first recording",
+             "~1 s for following recordings in a dictation session"]
+        case .neuralEngine:
+            ["Lowest power use — best on battery",
+             "Leaves the GPU free for other apps (games, video)",
+             "Lowest memory use"]
+        case .gpu:
+            ["~1 s per recording once warmed up",
+             "No second encoder copy in memory during warm-up"]
+        }
+    }
+
+    var cons: [String] {
+        switch self {
+        case .hybrid:
+            ["Two encoder copies in memory for ~6 s while the GPU warms up",
+             "Higher power use than the Neural Engine"]
+        case .neuralEngine:
+            ["Slowest: ~1.5 s per recording, also in dictation sessions"]
+        case .gpu:
+            ["Each load needs a ~5 s warm-up: a recording shorter than ~6 s waits up to ~5 s for it",
+             "Higher power use than the Neural Engine"]
+        }
+    }
+
+    fileprivate var computeOptions: ModelComputeOptions {
+        switch self {
+        case .hybrid, .neuralEngine:
+            ModelComputeOptions(audioEncoderCompute: .cpuAndNeuralEngine, textDecoderCompute: .cpuAndNeuralEngine)
+        case .gpu:
+            ModelComputeOptions(audioEncoderCompute: .cpuAndGPU, textDecoderCompute: .cpuAndGPU)
+        }
+    }
+}
+
 enum ModelStatus: Equatable {
     case notDownloaded
     case downloading(progress: Double?) // nil = indeterminate
@@ -166,7 +237,7 @@ class ModelManager: ObservableObject {
                     downloadBase: downloadBase,
                     modelFolder: modelFolder.path,
                     tokenizerFolder: downloadBase,
-                    computeOptions: Self.whisperComputeOptions,
+                    computeOptions: WhisperAcceleration.current.computeOptions,
                     verbose: true,
                     logLevel: .info,
                     prewarm: true,
@@ -332,13 +403,16 @@ class ModelManager: ObservableObject {
     /// short (~0.6 s from the Core ML cache) and the result is held for reuse.
     private func loadWhisperKit() async throws {
         cancelWhisperRelease()
+        if whisperKit != nil, loadedWhisperAcceleration != WhisperAcceleration.current {
+            releaseWhisper()
+        }
         if whisperKit != nil { return }
-        let task = whisperLoadTask ?? makeWhisperLoadTask()
+        let task = whisperLoadTask ?? makeWhisperLoadTask(acceleration: .current)
         whisperLoadTask = task
         _ = try await task.value
     }
 
-    private func makeWhisperLoadTask() -> Task<Void, Error> {
+    private func makeWhisperLoadTask(acceleration: WhisperAcceleration) -> Task<Void, Error> {
         whisperLoadGeneration += 1
         let generation = whisperLoadGeneration
         return Task {
@@ -353,19 +427,77 @@ class ModelManager: ObservableObject {
                     downloadBase: downloadBase,
                     modelFolder: modelFolder.path,
                     tokenizerFolder: downloadBase,
-                    computeOptions: Self.whisperComputeOptions,
+                    computeOptions: acceleration.computeOptions,
                     verbose: true,
                     logLevel: .info,
                     prewarm: false,
                     download: false
                 )
             )
-            // Released (hold expired, model deleted) while loading.
+            // Released (hold expired, model deleted, setting changed) while loading.
             try Task.checkCancellation()
+            let loaded = CFAbsoluteTimeGetCurrent() - start
+            // GPU only: the first encode after every load takes ~5 s; do it here so the
+            // transcription waits for it instead of paying it inside the encoder timing.
+            if acceleration == .gpu, let encoder = kit.audioEncoder as? AudioEncoder {
+                try await Self.warmUp(encoder)
+                try Task.checkCancellation()
+            }
             whisperKit = kit
-            log.notice("Whisper: loaded on ANE in \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - start), privacy: .public) s")
-            warmGPUEncoder(modelFolder: modelFolder)
+            loadedWhisperAcceleration = acceleration
+            isWhisperEncoderOnGPU = acceleration == .gpu
+            log.notice("""
+                Whisper: loaded (\(acceleration.rawValue, privacy: .public)) in \
+                \(String(format: "%.2f", loaded), privacy: .public) s, \
+                ready after \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - start), privacy: .public) s
+                """)
+            if acceleration == .hybrid {
+                warmGPUEncoder(modelFolder: modelFolder)
+            }
         }
+    }
+
+    /// Loads Whisper shortly after launch and transcribes 2 s of noise, so the first
+    /// dictation does not pay one-time costs: after a new build/install the first ANE
+    /// encode takes ~4 s, the first GPU load ~2 s and the first GPU decode ~1.5 s. The model is then held like after a transcription.
+    func warmUpWhisperAtLaunch() {
+        guard isDownloaded(.whisperKit) else { return }
+        Task {
+            try? await Task.sleep(for: .seconds(3))
+            guard whisperKit == nil, whisperLoadTask == nil else { return }
+            let start = CFAbsoluteTimeGetCurrent()
+            do {
+                try await loadWhisperKit()
+                if let kit = whisperKit {
+                    // Low-level noise: WhisperKit skips audio under 1 s and silence,
+                    // and this runs both the encoder and the decoder once.
+                    let noise = (0..<32_000).map { _ in Float.random(in: -0.01...0.01) }
+                    _ = try await kit.transcribe(
+                        audioArray: noise,
+                        decodeOptions: DecodingOptions(
+                            language: "en", temperatureFallbackCount: 0, sampleLength: 4,
+                            detectLanguage: false, wordTimestamps: false, chunkingStrategy: ChunkingStrategy.none
+                        )
+                    )
+                }
+                log.notice("Whisper: launch warm-up done in \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - start), privacy: .public) s")
+            } catch {
+                log.error("Whisper: launch warm-up failed: \(error)")
+            }
+            // A recording that started meanwhile owns the model and schedules the hold itself.
+            if loadedEngine != .whisperKit, preloadingEngine != .whisperKit {
+                scheduleWhisperRelease()
+            }
+        }
+    }
+
+    /// Applies a new acceleration setting: an idle held model is released now, one in
+    /// use is released instead of held after its transcription.
+    func setWhisperAcceleration(_ acceleration: WhisperAcceleration) {
+        UserDefaults.standard.set(acceleration.rawValue, forKey: WhisperAcceleration.defaultsKey)
+        guard whisperKit != nil, loadedWhisperAcceleration != acceleration, whisperReleaseTask != nil else { return }
+        log.notice("Whisper: acceleration changed to \(acceleration.rawValue, privacy: .public)")
+        releaseWhisper()
     }
 
     // MARK: - Whisper hold & GPU encoder
@@ -381,6 +513,7 @@ class ModelManager: ObservableObject {
     private var pendingGPUEncoder: AudioEncoder?
     private var isWhisperTranscribing = false
     private var isWhisperEncoderOnGPU = false
+    private var loadedWhisperAcceleration: WhisperAcceleration = .hybrid
     private var memoryPressureSource: DispatchSourceMemoryPressure?
 
     /// Loads a second copy of the encoder on the GPU and swaps it in once its first
@@ -439,6 +572,10 @@ class ModelManager: ObservableObject {
 
     private func scheduleWhisperRelease() {
         guard whisperKit != nil || whisperLoadTask != nil else { return }
+        if whisperKit != nil, loadedWhisperAcceleration != WhisperAcceleration.current {
+            releaseWhisper()
+            return
+        }
         whisperReleaseTask?.cancel()
         startMemoryPressureMonitoring()
         log.notice("Whisper: holding in memory for \(String(describing: Self.whisperHoldDuration), privacy: .public)")
@@ -498,12 +635,6 @@ class ModelManager: ObservableObject {
         }
     }
 
-    /// Load on the ANE: ready right after loading. The GPU encoder is swapped in later
-    /// by `warmGPUEncoder` because its first encode after every load takes ~5 s.
-    private static let whisperComputeOptions = ModelComputeOptions(
-        audioEncoderCompute: .cpuAndNeuralEngine,
-        textDecoderCompute: .cpuAndNeuralEngine
-    )
 
     private func transcribeWithWhisperKit(samples: [Float], language: String?) async throws -> String {
         guard let kit = whisperKit else {

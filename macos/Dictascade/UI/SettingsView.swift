@@ -44,6 +44,10 @@ struct SettingsView: View {
                 }
             }
 
+            if modelManager.isDownloaded(.whisperKit) {
+                WhisperAccelerationSection(modelManager: modelManager)
+            }
+
             MicrophoneSettingsSection()
 
             // Keyboard Shortcuts
@@ -610,6 +614,85 @@ private struct ModelRow: View {
                 .buttonStyle(.glass)
                 .controlSize(.small)
             }
+        }
+    }
+}
+
+// MARK: - Whisper Acceleration
+
+private struct WhisperAccelerationSection: View {
+    @ObservedObject var modelManager: ModelManager
+    @AppStorage(WhisperAcceleration.defaultsKey) private var selection: WhisperAcceleration = .hybrid
+
+    var body: some View {
+        Section {
+            ForEach(WhisperAcceleration.allCases) { acceleration in
+                WhisperAccelerationOption(acceleration: acceleration, isSelected: selection == acceleration) {
+                    selection = acceleration
+                    modelManager.setWhisperAcceleration(acceleration)
+                }
+            }
+        } header: {
+            Text("Whisper Acceleration")
+        } footer: {
+            Text("Applies from the next recording. Whisper stays in memory for 60 s after each use, so dictation sessions start warm.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
+private struct WhisperAccelerationOption: View {
+    let acceleration: WhisperAcceleration
+    let isSelected: Bool
+    let select: () -> Void
+
+    var body: some View {
+        Button(action: select) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
+                    .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+                    .font(.system(size: 14))
+                    .padding(.top, 1)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Text(acceleration.title)
+                            .font(.body.bold())
+                        if acceleration == .hybrid {
+                            Text("Recommended")
+                                .font(.caption2.weight(.medium))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(.blue.opacity(0.15), in: Capsule())
+                                .foregroundStyle(.blue)
+                        }
+                    }
+                    Text(acceleration.summary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(acceleration.pros, id: \.self) { point(text: $0, isPro: true) }
+                        ForEach(acceleration.cons, id: \.self) { point(text: $0, isPro: false) }
+                    }
+                    .padding(.top, 2)
+                }
+                Spacer(minLength: 0)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private func point(text: String, isPro: Bool) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+            Image(systemName: isPro ? "plus.circle.fill" : "minus.circle.fill")
+                .foregroundStyle(isPro ? .green : .orange)
+                .font(.system(size: 10))
+            Text(text)
+                .font(.caption)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }
