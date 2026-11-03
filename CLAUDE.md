@@ -72,6 +72,7 @@ macos/Dictascade/
 │   ├── FloatingPanel.swift       # NSPanel (non-activating, won't steal focus)
 │   ├── PanelPlacement.swift      # Overlay position: proportional top-center anchor, saved only after a drag
 │   ├── RecordingOverlay.swift    # Pill-shaped recording/transcribing indicator
+│   ├── MiniRecordingOverlay.swift # Compact overlay style (Settings → Recording Overlay: Full/Mini)
 │   ├── MainWindowView.swift      # Tab-based window (History + Settings)
 │   ├── HistoryView.swift         # Past transcriptions list (click to copy)
 │   ├── SettingsView.swift        # Model downloads, shortcut, modes, API keys

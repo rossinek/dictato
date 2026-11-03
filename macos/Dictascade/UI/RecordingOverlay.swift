@@ -3,6 +3,36 @@ import SwiftUI
 
 struct RecordingOverlay: View {
     @ObservedObject private var appState = AppState.shared
+    @AppStorage(OverlayStyle.defaultsKey) private var style: OverlayStyle = .full
+
+    var body: some View {
+        switch style {
+        case .full: FullRecordingOverlay(appState: appState)
+        case .mini: MiniRecordingOverlay(appState: appState)
+        }
+    }
+
+    static func dotColor(for state: AppState) -> Color {
+        if state.isError { return .red }
+        if state.isPaused { return .yellow }
+        if state.isPostProcessing { return .blue }
+        if state.isTranscribing { return .orange }
+        return .red
+    }
+
+    static func statusText(for state: AppState) -> String {
+        if state.isError {
+            return state.errorMessage.isEmpty ? "Transcription failed" : state.errorMessage
+        }
+        if state.isPaused { return "Paused" }
+        if state.isPostProcessing { return "Post-processing..." }
+        if state.isTranscribing { return "Transcribing..." }
+        return "Recording..."
+    }
+}
+
+private struct FullRecordingOverlay: View {
+    @ObservedObject var appState: AppState
     @State private var pulse = false
     @Environment(\.colorScheme) private var colorScheme
 
@@ -113,24 +143,9 @@ struct RecordingOverlay: View {
           }
     }
 
-    private var dotColor: Color {
-        if isError { return .red }
-        if isPaused { return .yellow }
-        if isPostProcessing { return .blue }
-        if isTranscribing { return .orange }
-        return .red
-    }
+    private var dotColor: Color { RecordingOverlay.dotColor(for: appState) }
 
-    private var statusText: String {
-        if isError {
-            let msg = appState.errorMessage
-            return msg.isEmpty ? "Transcription failed" : msg
-        }
-        if isPaused { return "Paused" }
-        if isPostProcessing { return "Post-processing..." }
-        if isTranscribing { return "Transcribing..." }
-        return "Recording..."
-    }
+    private var statusText: String { RecordingOverlay.statusText(for: appState) }
 
     private var shortcutLabel: String {
         if let shortcut = KeyboardShortcuts.getShortcut(for: .toggleRecording) {
@@ -225,7 +240,7 @@ private class ModeMenuTarget: NSObject {
 /// (`edgeZone` of the width on each side) spacing and speed grow toward the edge
 /// (bars slow down after entering and speed up before leaving) and bars are
 /// enlarged. Drawing runs slightly behind the audio.
-private struct AudioVisualizerView: View {
+struct AudioVisualizerView: View {
     let meter: AudioLevelMeter
     /// Height that a full-scale bar fills; the canvas may be taller so that
     /// enlarged edge bars can extend beyond it.

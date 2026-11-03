@@ -44,6 +44,10 @@ struct SettingsView: View {
                 }
             }
 
+            Section("Recording Overlay") {
+                OverlayStylePicker()
+            }
+
             MicrophoneSettingsSection()
 
             // Keyboard Shortcuts
@@ -624,6 +628,82 @@ private struct ModelRow: View {
                 }
                 .buttonStyle(.glass)
                 .controlSize(.small)
+            }
+        }
+    }
+}
+
+// MARK: - Recording Overlay Style
+
+private struct OverlayStylePicker: View {
+    @AppStorage(OverlayStyle.defaultsKey) private var style: OverlayStyle = .full
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ForEach(OverlayStyle.allCases) { option in
+                Button {
+                    style = option
+                } label: {
+                    VStack(spacing: 6) {
+                        OverlayStylePreview(style: option)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 64)
+                            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 8)
+                                    .strokeBorder(style == option ? Color.accentColor : .clear, lineWidth: 2)
+                            }
+                        Text(option.title)
+                            .font(.callout.weight(style == option ? .semibold : .regular))
+                            .foregroundStyle(style == option ? .primary : .secondary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(style == option ? .isSelected : [])
+            }
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+/// Simplified drawing of each overlay style.
+private struct OverlayStylePreview: View {
+    let style: OverlayStyle
+    private static let bars: [CGFloat] = [0.3, 0.6, 0.9, 0.5, 1, 0.7, 0.4, 0.8, 0.55, 0.3, 0.65, 0.45, 0.85, 0.5, 0.35]
+
+    var body: some View {
+        switch style {
+        case .full:
+            VStack(spacing: 4) {
+                VStack(spacing: 5) {
+                    bars(count: 15, height: 12)
+                    HStack(spacing: 6) {
+                        Capsule().frame(width: 22, height: 3)
+                        Capsule().frame(width: 18, height: 3)
+                    }
+                    .foregroundStyle(.tertiary)
+                }
+                .frame(width: 120, height: 32)
+                .background(.background, in: Capsule())
+                Capsule()
+                    .fill(.background)
+                    .frame(width: 34, height: 10)
+                    .overlay(Capsule().fill(.tertiary).frame(width: 18, height: 3))
+            }
+        case .mini:
+            bars(count: 7, height: 10)
+                .frame(width: 38, height: 16)
+                .background(.background, in: Capsule())
+        }
+    }
+
+    private func bars(count: Int, height: CGFloat) -> some View {
+        HStack(spacing: 2) {
+            ForEach(0..<count, id: \.self) { index in
+                Capsule()
+                    .fill(.secondary)
+                    .frame(width: 2, height: max(2, height * Self.bars[index % Self.bars.count]))
             }
         }
     }
