@@ -235,7 +235,7 @@ private struct AudioVisualizerView: View {
     private let speed: CGFloat = 80          // points per second in the middle zone
     private let edgeZone: CGFloat = 0.3      // fraction of the width on each side where bars slow down/speed up and are enlarged
     private let edgeStretch: CGFloat = 3     // spacing/speed multiplier at the very edge
-    private let maxEdgeScale: CGFloat = 5  // bar height multiplier at the very edge
+    private let maxEdgeScale: CGFloat = 3  // bar height multiplier at the very edge
     private let scaleCurve: CGFloat = 4      // higher = enlargement concentrated closer to the edge
     private let minBarHeight: CGFloat = 2.5
     private let latency: Double = 0.025      // seconds behind the newest audio (buffers arrive every ~11 ms)
