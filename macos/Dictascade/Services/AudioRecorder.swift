@@ -30,6 +30,9 @@ final class AudioRecorder {
     private var startTime: ContinuousClock.Instant?
     private var receivedAudio = false
     private var lastRestart: ContinuousClock.Instant?
+    /// Last buffer that carried signal; see `checkForDeadInput()`.
+    private var lastSignal: ContinuousClock.Instant = .now
+    private var watchdog: Task<Void, Never>?
     private let sessionQueue = DispatchQueue(label: "com.dictascade.audio-session")
     private let sampleQueue = DispatchQueue(label: "com.dictascade.audio-samples")
     private var sink: SampleSink?
@@ -73,6 +76,7 @@ final class AudioRecorder {
     func pause() {
         guard let session, !isPaused else { return }
         isPaused = true
+        watchdog?.cancel()
         sessionQueue.async { session.stopRunning() }
     }
 
@@ -88,6 +92,8 @@ final class AudioRecorder {
     func stop() {
         observers.forEach(NotificationCenter.default.removeObserver)
         observers = []
+        watchdog?.cancel()
+        watchdog = nil
         if let session {
             sessionQueue.async { session.stopRunning() }
         }
@@ -118,8 +124,12 @@ final class AudioRecorder {
             log.info("Using system default microphone \(systemDefault.localizedName, privacy: .public)")
             return systemDefault
         }
-        // The system default may still point at a device that just disconnected.
-        if let fallback = available.lazy.compactMap({ AVCaptureDevice(uniqueID: $0.uid) }).first {
+        // The system default may still point at a device that just disconnected or
+        // delivers no audio. Prefer the built-in microphone over virtual devices.
+        let builtInUsable = !AudioInputDevices.isClamshellClosed
+        let builtInFirst = available.filter { builtInUsable && $0.transport == .builtIn }
+            + available.filter { $0.transport != .builtIn }
+        if let fallback = builtInFirst.lazy.compactMap({ AVCaptureDevice(uniqueID: $0.uid) }).first {
             log.info("Using microphone \(fallback.localizedName, privacy: .public)")
             return fallback
         }
@@ -163,14 +173,55 @@ final class AudioRecorder {
     private func run(_ session: AVCaptureSession) {
         startTime = .now
         receivedAudio = false
+        lastSignal = .now
+        startWatchdog()
         sessionQueue.async {
             if !session.isRunning { session.startRunning() }
+        }
+    }
+
+    // MARK: - Dead Bluetooth input
+
+    /// Bluetooth headsets deliver ~1.5–2.2 s of digital silence while switching to the
+    /// headset profile. When that switch fails — typically when recording starts while
+    /// the headset is still leaving the profile after the previous recording, e.g. while
+    /// the completion sound plays over A2DP — bluetoothd gives up after several seconds
+    /// and the session keeps delivering silence without any error. Real microphones
+    /// never fall to -120 dBFS (AirPods' noise floor is around -50 dBFS).
+    private static let deadInputTimeout: Duration = .seconds(4)
+    private static let signalThreshold: Float = 1e-6
+
+    private func startWatchdog() {
+        watchdog?.cancel()
+        watchdog = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(500))
+                guard !Task.isCancelled else { return }
+                self?.checkForDeadInput()
+            }
+        }
+    }
+
+    private func checkForDeadInput() {
+        guard let session, !isPaused, let device = input?.device, device.isBluetooth else { return }
+        let silent = ContinuousClock.now - lastSignal
+        guard silent >= Self.deadInputTimeout else { return }
+        let seconds = Double(silent.components.seconds) + Double(silent.components.attoseconds) / 1e18
+        log.warning("No audio from \(device.localizedName, privacy: .public) for \(String(format: "%.1f", seconds), privacy: .public) s (headset profile did not start); switching to the next available input")
+        do {
+            try switchDevice(replacing: device)
+            run(session)
+        } catch {
+            fail("No audio from \(device.localizedName)")
         }
     }
 
     private func deliver(_ samples: [Float], from source: AVCaptureSession) {
         // Drop late buffers from a stopped or paused session.
         guard source === session, !isPaused else { return }
+        if samples.contains(where: { abs($0) > Self.signalThreshold }) {
+            lastSignal = .now
+        }
         if !receivedAudio, let startTime, samples.contains(where: { abs($0) > 1e-5 }) {
             receivedAudio = true
             let elapsed = ContinuousClock.now - startTime
@@ -236,6 +287,13 @@ final class AudioRecorder {
             case .cannotUse(let name): "Cannot record from \(name)"
             }
         }
+    }
+}
+
+private extension AVCaptureDevice {
+    var isBluetooth: Bool {
+        let transport = UInt32(bitPattern: transportType)
+        return transport == kAudioDeviceTransportTypeBluetooth || transport == kAudioDeviceTransportTypeBluetoothLE
     }
 }
 
