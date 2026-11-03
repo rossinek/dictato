@@ -12,11 +12,38 @@ struct RecordingOverlay: View {
     private var isPostProcessing: Bool { appState.isPostProcessing }
     private var isError: Bool { appState.isError }
 
+    /// Microphone name above the visualizer, styled like the shortcut descriptions.
+    private var microphoneName: String? {
+        guard isRecording || isPaused else { return nil }
+        return appState.activeInputDeviceName
+    }
+
+    private static let microphoneLabelHeight: CGFloat = 11
+    private static let microphoneLabelSpacing: CGFloat = 4
+
+    private var topPadding: CGFloat { microphoneName == nil ? 20 : 4 }
+
+    private var visualizerTopPadding: CGFloat {
+        guard microphoneName != nil else { return topPadding + 3 }
+        return topPadding + Self.microphoneLabelHeight + Self.microphoneLabelSpacing + 3
+    }
+
     var body: some View {
         VStack(spacing: 8) {
 
             // Main pill
             VStack(spacing: 4) {
+                if let microphoneName {
+                    Text(microphoneName)
+                        .font(.system(size: 9))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .frame(maxWidth: 220)
+                        .frame(height: Self.microphoneLabelHeight)
+                        .opacity(0.3)
+                        .padding(.bottom, Self.microphoneLabelSpacing - 4)
+                }
                 if isRecording {
                     // Placeholder to reserve height for the visualizer
                     Color.clear
@@ -55,7 +82,7 @@ struct RecordingOverlay: View {
                 }.opacity(0.4)
             }
             .padding(.horizontal, 24)
-            .padding(.top, 20)
+            .padding(.top, topPadding)
             .padding(.bottom, 6)
             .frame(minWidth: 250)
             .fixedSize()
@@ -63,7 +90,7 @@ struct RecordingOverlay: View {
                 if isRecording {
                     AudioVisualizerView(meter: appState.audioLevelMeter)
                         .frame(height: 19)
-                        .padding(.top, 23)
+                        .padding(.top, visualizerTopPadding)
                 }
             }
             .clipShape(.capsule)

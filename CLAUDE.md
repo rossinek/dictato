@@ -42,11 +42,11 @@ xcodebuild -project Dictascade.xcodeproj -scheme Dictascade -destination 'platfo
 
 #### Entry Point
 - `DictascadeApp.swift` — SwiftUI `@main` app. `MenuBarExtra` for the tray icon/menu. `AppDelegate` handles shortcut registration and floating panel lifecycle.
-- `AppState.swift` — `@MainActor` singleton (`AppState.shared`). Owns AVAudioEngine recording, delegates transcription to `ModelManager`. All state flows through here.
+- `AppState.swift` — `@MainActor` singleton (`AppState.shared`). Drives recording through `AudioRecorder`, delegates transcription to `ModelManager`. All state flows through here.
 
 #### Recording & Transcription Flow
 1. Global shortcut (default: **Option+Space**) toggles recording via `AppState.toggleRecording()`
-2. Recording uses `AVAudioEngine` with `inputNode.installTap()`, converting to 16kHz mono — unified pipeline for both engines
+2. `AudioRecorder` (`Services/AudioRecorder.swift`) captures with `AVCaptureSession` + `AVCaptureAudioDataOutput`, which delivers 16kHz mono Float32 directly — unified pipeline for both engines. The input device comes from the microphone priority list (Settings → Microphone; first connected entry wins, "Auto" = system default, always last); a device that disconnects mid-recording is replaced in the running session by the next entry, a newly connected higher-priority device is used from the next recording
 3. Model preloading begins in the background when recording starts (via `ModelManager.preload()`)
 4. If the user changes modes mid-recording, the previous model load is cancelled and the new one starts
 5. On stop, `AppState` awaits model load completion, then passes accumulated `[Float]` samples to the loaded engine
@@ -66,21 +66,25 @@ xcodebuild -project Dictascade.xcodeproj -scheme Dictascade -destination 'platfo
 macos/Dictascade/
 ├── App/
 │   ├── DictascadeApp.swift       # App entry, MenuBarExtra, AppDelegate
-│   ├── AppState.swift            # Central state, AVAudioEngine recording, mode management
+│   ├── AppState.swift            # Central state, recording lifecycle, mode management
 │   └── AppIntents.swift          # Apple Shortcuts (Start Recording, Transcribe File)
 ├── UI/
 │   ├── FloatingPanel.swift       # NSPanel (non-activating, won't steal focus)
 │   ├── RecordingOverlay.swift    # Pill-shaped recording/transcribing indicator
 │   ├── MainWindowView.swift      # Tab-based window (History + Settings)
 │   ├── HistoryView.swift         # Past transcriptions list (click to copy)
-│   └── SettingsView.swift        # Model downloads, shortcut, modes, API keys
+│   ├── SettingsView.swift        # Model downloads, shortcut, modes, API keys
+│   └── MicrophoneSettingsSection.swift # Microphone priority list
 ├── Services/
 │   ├── ModelManager.swift        # Multi-engine abstraction (WhisperKit + FluidAudio)
 │   ├── LLMService.swift          # OpenAI/Groq post-processing
 │   ├── PasteService.swift        # Clipboard + CGEvent Cmd+V
 │   ├── KeyboardTyper.swift       # Unicode typing fallback (no clipboard)
 │   ├── ChromiumEngineDetector.swift # Detects Chromium 155–156 (drops synthetic pastes)
-│   └── PermissionsService.swift  # Mic & accessibility permission checks
+│   ├── PermissionsService.swift  # Mic & accessibility permission checks
+│   ├── InputDevicePreference.swift # Microphone priority list + resolver (pure, unit-tested)
+│   ├── AudioInputDevices.swift   # CoreAudio device list, clamshell check, monitor
+│   └── AudioRecorder.swift       # Microphone capture (AVCaptureSession, device priority, fail-over)
 ├── Shortcuts/
 │   └── GlobalShortcut.swift      # KeyboardShortcuts.Name definition
 ├── Models/
@@ -108,6 +112,7 @@ macos/Dictascade/
 - **Slow first model download:** WhisperKit prewarming compiles the CoreML model during download (~2-3 min). Cached after that, but cache is invalidated by code signature changes (every Xcode rebuild). FluidAudio has a similar first-load compilation cost.
 - **Accessibility permissions:** Tied to code signature. After rebuilding, you may need to re-add the app in System Settings > Privacy & Security > Accessibility.
 - **Sandbox disabled:** Entitlements file is empty for development. Needs proper sandbox + hardened runtime for distribution.
+- **Microphone capture:** Do not go back to `AVAudioEngine` for recording. Creating its input node opens the system default input first: with AirPods connected that cost ~1 s even when recording from the built-in microphone, a device bound afterwards kept the previous device's format (`-10868`) and Bluetooth profile switches raised NSExceptions from `installTap`. `AVCaptureSession` opens only the chosen device (built-in: first audio after ~80 ms with AirPods connected). Bluetooth headsets still deliver ~1.7–2.2 s of silence while switching to the headset profile; that is firmware, logged as `First audio after N ms`.
 - **State observation:** The floating panel is managed via a polling Task (100ms) watching `AppState` properties. This works but could be replaced with Combine publishers if needed.
 
 ### Adding New Features

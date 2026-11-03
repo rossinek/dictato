@@ -44,6 +44,8 @@ struct SettingsView: View {
                 }
             }
 
+            MicrophoneSettingsSection()
+
             // Keyboard Shortcuts
             Section("Keyboard Shortcuts") {
               KeyboardShortcuts.Recorder("Toggle Recording", name: .toggleRecording)

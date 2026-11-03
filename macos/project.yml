@@ -54,6 +54,17 @@ targets:
     dependencies:
       - package: FluidAudio
 
+  InputDeviceTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - InputDeviceTests
+      - Dictascade/Services/InputDevicePreference.swift
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_VERSION: "5.9"
+
   PasteboardTests:
     type: bundle.unit-test
     platform: macOS

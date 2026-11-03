@@ -23,6 +23,8 @@ class AppState: ObservableObject {
     @Published var isFileTranscribing = false
     @Published var mainWindowTab: MainWindowTab = .history
     @Published var shouldOpenMainWindow = false
+    /// Name of the microphone the current recording uses (shown in the overlay).
+    @Published var activeInputDeviceName: String?
 
     var selectedMode: TranscriptionMode {
         modes[min(selectedModeIndex, modes.count - 1)]
@@ -31,21 +33,16 @@ class AppState: ObservableObject {
     let modelManager = ModelManager()
     let audioLevelMeter = AudioLevelMeter()
 
-    private var audioEngine: AVAudioEngine?
+    private let recorder = AudioRecorder()
     private var audioSamples: [Float] = []
     private var failedSamples: [Float] = []
     private var transcriptionTask: Task<Void, Never>?
-    private let audioSampleConverter = AudioSampleConverter()
-    private var audioCaptureSessionID: UUID?
-    private var audioConfigurationObserver: NSObjectProtocol?
-    private var audioRestartTask: Task<Void, Never>?
-    private var isAudioTapInstalled = false
-    private var audioConfigurationNeedsRefresh = false
 
     private let modeSync = ModeSync.shared
 
     private init() {
         log.info("AppState initialized")
+        setupRecorder()
         loadModes()
         setupModeSync()
         loadHistory()
@@ -205,7 +202,21 @@ class AppState: ObservableObject {
         }
     }
 
-    // MARK: - Recording (AVAudioEngine)
+    // MARK: - Recording
+
+    private func setupRecorder() {
+        recorder.onSamples = { [weak self] samples, rms in
+            guard let self else { return }
+            self.audioSamples.append(contentsOf: samples)
+            self.audioLevelMeter.update(rms: rms)
+        }
+        recorder.onDeviceChange = { [weak self] name in
+            self?.activeInputDeviceName = name
+        }
+        recorder.onFailure = { [weak self] message in
+            self?.failAudioCapture(message: message)
+        }
+    }
 
     private func startRecording() {
         guard !isTranscribing else {
@@ -223,139 +234,28 @@ class AppState: ObservableObject {
         do {
             audioSamples = []
             audioLevelMeter.reset()
-            let engine = AVAudioEngine()
-            let sessionID = UUID()
-            audioCaptureSessionID = sessionID
-            audioSampleConverter.reset()
-            installAudioInputTap(on: engine, sessionID: sessionID)
-            observeAudioConfigurationChanges(for: engine)
-
-            audioEngine = engine
+            try recorder.start()
+            activeInputDeviceName = recorder.deviceName
             isRecording = true
-            engine.prepare()
-            try engine.start()
-            logInputFormat(engine, message: "Recording started")
 
             // Start loading the model in the background while recording
             modelManager.preload(resolvedEngine)
         } catch {
-            if let engine = audioEngine {
-                failAudioCapture(
-                    engine,
-                    message: "Could not start audio input: \(error.localizedDescription)"
-                )
-            } else {
-                isRecording = false
-                errorMessage = "Could not start audio input: \(error.localizedDescription)"
-                isError = true
-            }
+            isRecording = false
+            errorMessage = "Could not start audio input: \(error.localizedDescription)"
+            isError = true
             log.error("Failed to start recording: \(error)")
         }
     }
 
-    private func installAudioInputTap(on engine: AVAudioEngine, sessionID: UUID) {
-        let inputNode = engine.inputNode
-        let sampleConverter = audioSampleConverter
-
-        // Passing nil lets the tap follow the input node's current hardware
-        // format instead of pinning the pre-HFP Bluetooth format.
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, _ in
-            guard let samples = sampleConverter.convert(buffer), !samples.isEmpty else { return }
-
-            let sumOfSquares = samples.reduce(Float(0)) { $0 + $1 * $1 }
-            let rms = sqrt(sumOfSquares / Float(samples.count))
-
-            DispatchQueue.main.async { [weak self] in
-                guard let self, self.audioCaptureSessionID == sessionID else { return }
-
-                self.audioSamples.append(contentsOf: samples)
-                self.audioLevelMeter.update(rms: rms)
-            }
-        }
-        isAudioTapInstalled = true
+    private func stopAudioCapture() {
+        recorder.stop()
+        activeInputDeviceName = nil
     }
 
-    private func observeAudioConfigurationChanges(for engine: AVAudioEngine) {
-        removeAudioConfigurationObserver()
-        audioConfigurationObserver = NotificationCenter.default.addObserver(
-            forName: .AVAudioEngineConfigurationChange,
-            object: engine,
-            queue: nil
-        ) { [weak self, weak engine] _ in
-            guard let engine else { return }
-            Task { @MainActor [weak self] in
-                self?.audioConfigurationDidChange(for: engine)
-            }
-        }
-    }
-
-    private func audioConfigurationDidChange(for engine: AVAudioEngine) {
-        guard audioEngine === engine, isRecording || isPaused else { return }
-
-        audioConfigurationNeedsRefresh = true
-        logInputFormat(engine, message: "Audio input configuration changed")
-
-        // A paused engine is refreshed immediately before resume.
-        guard isRecording else { return }
-
-        audioRestartTask?.cancel()
-        audioRestartTask = Task { @MainActor [weak self, weak engine] in
-            // Leave the notification callback before touching the engine. Apple
-            // warns that synchronous teardown from that callback can deadlock.
-            await Task.yield()
-            guard !Task.isCancelled, let self, let engine,
-                  self.audioEngine === engine, self.isRecording else { return }
-
-            do {
-                try self.refreshAudioCapture(engine)
-                self.logInputFormat(engine, message: "Audio input restarted")
-            } catch {
-                self.failAudioCapture(
-                    engine,
-                    message: "Audio input changed and could not be restarted: \(error.localizedDescription)"
-                )
-                log.error("Failed to restart audio after configuration change: \(error)")
-            }
-        }
-    }
-
-    private func refreshAudioCapture(_ engine: AVAudioEngine) throws {
-        engine.stop()
-        if isAudioTapInstalled {
-            engine.inputNode.removeTap(onBus: 0)
-            isAudioTapInstalled = false
-        }
-
-        audioSampleConverter.reset()
-        guard let sessionID = audioCaptureSessionID else { return }
-        installAudioInputTap(on: engine, sessionID: sessionID)
-        engine.prepare()
-        try engine.start()
-        audioConfigurationNeedsRefresh = false
-    }
-
-    private func stopAudioCapture(_ engine: AVAudioEngine) {
-        audioRestartTask?.cancel()
-        audioRestartTask = nil
-        removeAudioConfigurationObserver()
-        audioCaptureSessionID = nil
-        audioConfigurationNeedsRefresh = false
-
-        if isAudioTapInstalled {
-            engine.inputNode.removeTap(onBus: 0)
-            isAudioTapInstalled = false
-        }
-        engine.stop()
-        audioSampleConverter.reset()
-
-        if audioEngine === engine {
-            audioEngine = nil
-        }
-    }
-
-    private func failAudioCapture(_ engine: AVAudioEngine, message: String) {
+    private func failAudioCapture(message: String) {
         let capturedSamples = audioSamples
-        stopAudioCapture(engine)
+        stopAudioCapture()
 
         failedSamples = capturedSamples
         audioSamples = []
@@ -363,20 +263,6 @@ class AppState: ObservableObject {
         isPaused = false
         errorMessage = message
         isError = true
-    }
-
-    private func removeAudioConfigurationObserver() {
-        if let audioConfigurationObserver {
-            NotificationCenter.default.removeObserver(audioConfigurationObserver)
-            self.audioConfigurationObserver = nil
-        }
-    }
-
-    private func logInputFormat(_ engine: AVAudioEngine, message: String) {
-        let format = engine.inputNode.outputFormat(forBus: 0)
-        log.info(
-            "\(message, privacy: .public): \(format.sampleRate, privacy: .public) Hz, \(format.channelCount, privacy: .public) channel(s)"
-        )
     }
 
     func togglePause() {
@@ -389,32 +275,23 @@ class AppState: ObservableObject {
     }
 
     private func pauseRecording() {
-        guard audioEngine != nil, isRecording else { return }
-        audioEngine?.pause()
+        guard recorder.isActive, isRecording else { return }
+        recorder.pause()
         isRecording = false
         isPaused = true
-        log.info("Recording paused")
+        log.info("Recording paused (\(String(format: "%.1f", Double(self.audioSamples.count) / 16_000), privacy: .public) s captured)")
     }
 
     private func resumeRecording() {
-        guard let engine = audioEngine, isPaused else { return }
-        // Mark the capture active before starting the engine so a Bluetooth
-        // configuration notification emitted by start() schedules recovery.
+        guard recorder.isActive, isPaused else { return }
         isPaused = false
         isRecording = true
         do {
-            if audioConfigurationNeedsRefresh {
-                try refreshAudioCapture(engine)
-            } else {
-                engine.prepare()
-                try engine.start()
-            }
-            logInputFormat(engine, message: "Recording resumed")
+            try recorder.resume()
+            activeInputDeviceName = recorder.deviceName
+            log.info("Recording resumed")
         } catch {
-            failAudioCapture(
-                engine,
-                message: "Could not resume audio input: \(error.localizedDescription)"
-            )
+            failAudioCapture(message: "Could not resume audio input: \(error.localizedDescription)")
             log.error("Failed to resume recording: \(error)")
         }
     }
@@ -431,9 +308,7 @@ class AppState: ObservableObject {
 
     func discardRecording() {
         guard isPaused || isRecording else { return }
-        if let engine = audioEngine {
-            stopAudioCapture(engine)
-        }
+        stopAudioCapture()
         modelManager.cancelPreload()
         modelManager.unloadCurrent()
         audioSamples = []
@@ -483,9 +358,9 @@ class AppState: ObservableObject {
 
     /// Stop recording, transcribe, and return the result text. For use by AppIntents.
     func stopAndTranscribeAsync() async -> String {
-        guard let engine = audioEngine else { return "" }
+        guard recorder.isActive else { return "" }
 
-        stopAudioCapture(engine)
+        stopAudioCapture()
         isRecording = false
         isPaused = false
         isTranscribing = true
@@ -544,9 +419,9 @@ class AppState: ObservableObject {
     }
 
     private func stopAndTranscribe() {
-        guard let engine = audioEngine else { return }
+        guard recorder.isActive else { return }
 
-        stopAudioCapture(engine)
+        stopAudioCapture()
         isRecording = false
         isPaused = false
         isTranscribing = true
