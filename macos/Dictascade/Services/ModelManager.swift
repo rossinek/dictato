@@ -1,3 +1,4 @@
+import CoreML
 import Foundation
 import FluidAudio
 import os
@@ -199,7 +200,9 @@ class ModelManager: ObservableObject {
     // MARK: - Delete
 
     func delete(_ engine: TranscriptionEngine) {
-        if loadedEngine == engine {
+        if engine == .whisperKit {
+            releaseWhisper()
+        } else if loadedEngine == engine {
             unload(engine)
         }
 
@@ -324,28 +327,160 @@ class ModelManager: ObservableObject {
         }
     }
 
+    /// Reuses the instance held after the previous transcription, or joins a load
+    /// already in flight. The load itself is not cancelled with the caller: it is
+    /// short (~0.6 s from the Core ML cache) and the result is held for reuse.
     private func loadWhisperKit() async throws {
-        let downloadBase = whisperKitDownloadBase
-        let modelFolder = whisperModelFolder ?? findWhisperModelFolder()
+        cancelWhisperRelease()
+        if whisperKit != nil { return }
+        let task = whisperLoadTask ?? makeWhisperLoadTask()
+        whisperLoadTask = task
+        _ = try await task.value
+    }
 
-        guard let modelFolder else {
-            throw ModelError.modelFilesNotFound(.whisperKit)
-        }
-
-        let kit = try await WhisperKit(
-            WhisperKitConfig(
-                downloadBase: downloadBase,
-                modelFolder: modelFolder.path,
-                tokenizerFolder: downloadBase,
-                computeOptions: Self.whisperComputeOptions,
-                verbose: true,
-                logLevel: .info,
-                prewarm: false,
-                download: false
+    private func makeWhisperLoadTask() -> Task<Void, Error> {
+        whisperLoadGeneration += 1
+        let generation = whisperLoadGeneration
+        return Task {
+            defer { if whisperLoadGeneration == generation { whisperLoadTask = nil } }
+            let downloadBase = whisperKitDownloadBase
+            guard let modelFolder = whisperModelFolder ?? findWhisperModelFolder() else {
+                throw ModelError.modelFilesNotFound(.whisperKit)
+            }
+            let start = CFAbsoluteTimeGetCurrent()
+            let kit = try await WhisperKit(
+                WhisperKitConfig(
+                    downloadBase: downloadBase,
+                    modelFolder: modelFolder.path,
+                    tokenizerFolder: downloadBase,
+                    computeOptions: Self.whisperComputeOptions,
+                    verbose: true,
+                    logLevel: .info,
+                    prewarm: false,
+                    download: false
+                )
             )
-        )
-        try Task.checkCancellation()
-        whisperKit = kit
+            // Released (hold expired, model deleted) while loading.
+            try Task.checkCancellation()
+            whisperKit = kit
+            log.notice("Whisper: loaded on ANE in \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - start), privacy: .public) s")
+            warmGPUEncoder(modelFolder: modelFolder)
+        }
+    }
+
+    // MARK: - Whisper hold & GPU encoder
+
+    /// How long Whisper stays in memory after a transcription, a cancelled recording
+    /// or a switch to another mode, so the next dictation in a session starts warm.
+    private static let whisperHoldDuration: Duration = .seconds(60)
+
+    private var whisperLoadTask: Task<Void, Error>?
+    private var whisperLoadGeneration = 0
+    private var whisperReleaseTask: Task<Void, Never>?
+    private var gpuEncoderTask: Task<Void, Never>?
+    private var pendingGPUEncoder: AudioEncoder?
+    private var isWhisperTranscribing = false
+    private var isWhisperEncoderOnGPU = false
+    private var memoryPressureSource: DispatchSourceMemoryPressure?
+
+    /// Loads a second copy of the encoder on the GPU and swaps it in once its first
+    /// encode (~5 s of MPS graph specialization, paid on every load) is done. Until
+    /// then the ANE encoder serves transcriptions, so short recordings never wait.
+    /// Warm GPU encode: ~0.7 s vs ~1.15 s on the ANE.
+    private func warmGPUEncoder(modelFolder: URL) {
+        gpuEncoderTask?.cancel()
+        gpuEncoderTask = Task {
+            let start = CFAbsoluteTimeGetCurrent()
+            do {
+                let encoder = AudioEncoder()
+                try await encoder.loadModel(
+                    at: modelFolder.appendingPathComponent("AudioEncoder.mlmodelc"),
+                    computeUnits: .cpuAndGPU
+                )
+                try Task.checkCancellation()
+                let loaded = CFAbsoluteTimeGetCurrent() - start
+                try await Self.warmUp(encoder)
+                try Task.checkCancellation()
+                log.notice("""
+                    Whisper: GPU encoder ready after \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - start), privacy: .public) s \
+                    (load \(String(format: "%.2f", loaded), privacy: .public) s)
+                    """)
+                pendingGPUEncoder = encoder
+                installPendingGPUEncoder()
+            } catch is CancellationError {
+            } catch {
+                log.error("Whisper: GPU encoder warm-up failed, staying on ANE: \(error)")
+            }
+            // A cancelled task may already have been replaced by a newer one.
+            if !Task.isCancelled { gpuEncoderTask = nil }
+        }
+    }
+
+    private nonisolated static func warmUp(_ encoder: AudioEncoder) async throws {
+        guard let constraint = encoder.model?.modelDescription
+            .inputDescriptionsByName["melspectrogram_features"]?.multiArrayConstraint else {
+            throw ModelError.noModelLoaded
+        }
+        let features = try MLMultiArray(shape: constraint.shape, dataType: constraint.dataType)
+        features.withUnsafeMutableBytes { bytes, _ in
+            bytes.initializeMemory(as: UInt8.self, repeating: 0)
+        }
+        _ = try await encoder.encodeFeatures(features)
+    }
+
+    /// Swaps encoders only between transcriptions; the ANE encoder is then released.
+    private func installPendingGPUEncoder() {
+        guard !isWhisperTranscribing, let encoder = pendingGPUEncoder, let kit = whisperKit else { return }
+        kit.audioEncoder = encoder
+        pendingGPUEncoder = nil
+        isWhisperEncoderOnGPU = true
+        log.notice("Whisper: switched encoder to GPU")
+    }
+
+    private func scheduleWhisperRelease() {
+        guard whisperKit != nil || whisperLoadTask != nil else { return }
+        whisperReleaseTask?.cancel()
+        startMemoryPressureMonitoring()
+        log.notice("Whisper: holding in memory for \(String(describing: Self.whisperHoldDuration), privacy: .public)")
+        whisperReleaseTask = Task {
+            do { try await Task.sleep(for: Self.whisperHoldDuration) } catch { return }
+            log.notice("Whisper: hold expired")
+            releaseWhisper()
+        }
+    }
+
+    private func cancelWhisperRelease() {
+        whisperReleaseTask?.cancel()
+        whisperReleaseTask = nil
+    }
+
+    private func releaseWhisper() {
+        cancelWhisperRelease()
+        whisperLoadTask?.cancel()
+        whisperLoadTask = nil
+        gpuEncoderTask?.cancel()
+        gpuEncoderTask = nil
+        pendingGPUEncoder = nil
+        guard whisperKit != nil else { return }
+        whisperKit = nil
+        isWhisperEncoderOnGPU = false
+        if loadedEngine == .whisperKit { loadedEngine = nil }
+        log.notice("Whisper: released from memory")
+    }
+
+    /// Drops a held (idle) Whisper early when the system runs low on memory.
+    private func startMemoryPressureMonitoring() {
+        guard memoryPressureSource == nil else { return }
+        let source = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
+        source.setEventHandler { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.whisperReleaseTask != nil else { return }
+                log.notice("Whisper: releasing held model under memory pressure")
+                self.releaseWhisper()
+            }
+        }
+        source.resume()
+        memoryPressureSource = source
     }
 
     private func loadFluidAudio(_ engine: TranscriptionEngine) async throws {
@@ -363,9 +498,8 @@ class ModelManager: ObservableObject {
         }
     }
 
-    /// Keep the encoder on the ANE. On the GPU a warm encode is faster (0.69 s vs 1.15 s),
-    /// but the first encode after every load takes ~4.9 s (MPS graph specialization),
-    /// and the model is loaded for every recording.
+    /// Load on the ANE: ready right after loading. The GPU encoder is swapped in later
+    /// by `warmGPUEncoder` because its first encode after every load takes ~5 s.
     private static let whisperComputeOptions = ModelComputeOptions(
         audioEncoderCompute: .cpuAndNeuralEngine,
         textDecoderCompute: .cpuAndNeuralEngine
@@ -380,6 +514,13 @@ class ModelManager: ObservableObject {
         guard !audible.isEmpty else {
             log.notice("Whisper: recording is digital silence, skipping transcription")
             return ""
+        }
+        installPendingGPUEncoder()
+        let encoderUnit = isWhisperEncoderOnGPU ? "GPU" : "ANE"
+        isWhisperTranscribing = true
+        defer {
+            isWhisperTranscribing = false
+            installPendingGPUEncoder()
         }
         let start = CFAbsoluteTimeGetCurrent()
         let results = try await kit.transcribe(
@@ -401,7 +542,7 @@ class ModelManager: ObservableObject {
             Whisper: \(String(format: "%.1f", Double(audible.count) / 16000), privacy: .public) s audio \
             (trimmed \(String(format: "%.1f", Double(samples.count - audible.count) / 16000), privacy: .public) s silence), \
             total \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - start), privacy: .public) s, \
-            encoder \(String(format: "%.2f", timings?.encoding ?? 0), privacy: .public) s, \
+            encoder \(String(format: "%.2f", timings?.encoding ?? 0), privacy: .public) s (\(encoderUnit, privacy: .public)), \
             decoder \(String(format: "%.2f", (timings?.decodingLoop ?? 0) - (timings?.encoding ?? 0)), privacy: .public) s, \
             fallbacks \(Int(timings?.totalDecodingFallbacks ?? 0)), \
             language \(results.first?.language ?? "?", privacy: .public)
@@ -451,10 +592,13 @@ class ModelManager: ObservableObject {
         return text
     }
 
+    /// Whisper is not freed here: it is held for `whisperHoldDuration`, then released.
     private func unload(_ engine: TranscriptionEngine) {
         switch engine {
         case .whisperKit:
-            whisperKit = nil
+            if loadedEngine == engine { loadedEngine = nil }
+            scheduleWhisperRelease()
+            return
         case .fluidAudio, .parakeetUltra:
             asrManager = nil
             ctcSpotter = nil
