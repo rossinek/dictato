@@ -65,6 +65,17 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         SWIFT_VERSION: "5.9"
 
+  SilenceTrimmerTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - SilenceTrimmerTests
+      - Dictascade/Services/SilenceTrimmer.swift
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_VERSION: "5.9"
+
   PasteboardTests:
     type: bundle.unit-test
     platform: macOS

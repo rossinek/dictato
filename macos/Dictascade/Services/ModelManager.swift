@@ -5,6 +5,14 @@ import WhisperKit
 
 private let log = Logger(subsystem: "com.dictascade.app", category: "ModelManager")
 
+/// OpenAI's Whisper Large V3 Turbo (4 decoder layers), fp16 Core ML build.
+/// Do not use `openai_whisper-large-v3_turbo`: despite the name it is full Large V3
+/// with 32 decoder layers (~6x slower). The quantized `_632MB` build decodes faster
+/// but its first Core ML compilation takes ~2.5 min instead of ~15 s, and that
+/// compilation repeats whenever the ANE cache is lost (new app path, eviction).
+private let whisperVariant = "openai_whisper-large-v3-v20240930_turbo"
+private let retiredWhisperVariant = "openai_whisper-large-v3_turbo"
+
 enum TranscriptionEngine: String, Codable, CaseIterable, Identifiable {
     case parakeetUltra
     case fluidAudio
@@ -92,8 +100,13 @@ class ModelManager: ObservableObject {
     private var customVocabularyContext: CustomVocabularyContext?
 
     init() {
-        removeRetiredModelFiles()
+        let replacesRetiredWhisper = removeRetiredModelFiles()
         checkExistingDownloads()
+        // The user had downloaded Whisper explicitly; replace it with the current variant.
+        if replacesRetiredWhisper, !isDownloaded(.whisperKit) {
+            log.info("Replacing retired Whisper model with \(whisperVariant)")
+            Task { await download(.whisperKit) }
+        }
     }
 
     var hasAnyModelDownloaded: Bool {
@@ -132,7 +145,7 @@ class ModelManager: ObservableObject {
             try FileManager.default.createDirectory(at: downloadBase, withIntermediateDirectories: true)
 
             let modelFolder = try await WhisperKit.download(
-                variant: "openai_whisper-large-v3_turbo",
+                variant: whisperVariant,
                 downloadBase: downloadBase,
                 progressCallback: { [weak self] progress in
                     let pct = progress.fractionCompleted
@@ -152,10 +165,7 @@ class ModelManager: ObservableObject {
                     downloadBase: downloadBase,
                     modelFolder: modelFolder.path,
                     tokenizerFolder: downloadBase,
-                    computeOptions: ModelComputeOptions(
-                        audioEncoderCompute: .cpuAndNeuralEngine,
-                        textDecoderCompute: .cpuAndNeuralEngine
-                    ),
+                    computeOptions: Self.whisperComputeOptions,
                     verbose: true,
                     logLevel: .info,
                     prewarm: true,
@@ -327,13 +337,10 @@ class ModelManager: ObservableObject {
                 downloadBase: downloadBase,
                 modelFolder: modelFolder.path,
                 tokenizerFolder: downloadBase,
-                computeOptions: ModelComputeOptions(
-                    audioEncoderCompute: .cpuAndNeuralEngine,
-                    textDecoderCompute: .cpuAndNeuralEngine
-                ),
+                computeOptions: Self.whisperComputeOptions,
                 verbose: true,
                 logLevel: .info,
-                prewarm: true,
+                prewarm: false,
                 download: false
             )
         )
@@ -356,19 +363,49 @@ class ModelManager: ObservableObject {
         }
     }
 
+    /// Keep the encoder on the ANE. On the GPU a warm encode is faster (0.69 s vs 1.15 s),
+    /// but the first encode after every load takes ~4.9 s (MPS graph specialization),
+    /// and the model is loaded for every recording.
+    private static let whisperComputeOptions = ModelComputeOptions(
+        audioEncoderCompute: .cpuAndNeuralEngine,
+        textDecoderCompute: .cpuAndNeuralEngine
+    )
+
     private func transcribeWithWhisperKit(samples: [Float], language: String?) async throws -> String {
         guard let kit = whisperKit else {
             throw ModelError.noModelLoaded
         }
 
+        let audible = SilenceTrimmer.audibleRange(samples)
+        guard !audible.isEmpty else {
+            log.notice("Whisper: recording is digital silence, skipping transcription")
+            return ""
+        }
+        let start = CFAbsoluteTimeGetCurrent()
         let results = try await kit.transcribe(
-            audioArray: samples,
+            audioArray: Array(samples[audible]),
             decodeOptions: DecodingOptions(
                 language: language,
+                // At most one re-decode at a higher temperature: each fallback repeats
+                // the whole decode and rarely improves dictation.
+                temperatureFallbackCount: 1,
+                // With language nil WhisperKit otherwise forces English.
+                detectLanguage: language == nil,
                 wordTimestamps: false,
                 chunkingStrategy: .none
             )
         )
+
+        let timings = results.first?.timings
+        log.notice("""
+            Whisper: \(String(format: "%.1f", Double(audible.count) / 16000), privacy: .public) s audio \
+            (trimmed \(String(format: "%.1f", Double(samples.count - audible.count) / 16000), privacy: .public) s silence), \
+            total \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - start), privacy: .public) s, \
+            encoder \(String(format: "%.2f", timings?.encoding ?? 0), privacy: .public) s, \
+            decoder \(String(format: "%.2f", (timings?.decodingLoop ?? 0) - (timings?.encoding ?? 0)), privacy: .public) s, \
+            fallbacks \(Int(timings?.totalDecodingFallbacks ?? 0)), \
+            language \(results.first?.language ?? "?", privacy: .public)
+            """)
 
         return results.map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) }
             .joined(separator: " ")
@@ -545,15 +582,31 @@ class ModelManager: ObservableObject {
         engine == .parakeetUltra ? .ultra : .v3
     }
 
-    /// LFM3 was retired; remove only its app-owned download, never shared caches.
-    private func removeRetiredModelFiles() {
-        let directory = appSupportDirectory.appendingPathComponent("LFM3Audio", isDirectory: true)
-        guard FileManager.default.fileExists(atPath: directory.path) else { return }
+    /// Remove app-owned downloads of retired models, never shared caches.
+    /// Returns true when a retired Whisper model was removed.
+    @discardableResult
+    private func removeRetiredModelFiles() -> Bool {
+        let lfm3 = appSupportDirectory.appendingPathComponent("LFM3Audio", isDirectory: true)
+        removeRetired(lfm3)
+        return removeRetired(whisperModelFolder(for: retiredWhisperVariant))
+    }
+
+    @discardableResult
+    private func removeRetired(_ directory: URL) -> Bool {
+        guard FileManager.default.fileExists(atPath: directory.path) else { return false }
         do {
             try FileManager.default.removeItem(at: directory)
+            log.info("Removed retired model files at \(directory.lastPathComponent)")
+            return true
         } catch {
-            log.error("Could not remove retired LFM3 download: \(error)")
+            log.error("Could not remove retired model files at \(directory.path): \(error)")
+            return false
         }
+    }
+
+    private func whisperModelFolder(for variant: String) -> URL {
+        // WhisperKit downloads to: base/models/argmaxinc/whisperkit-coreml/<variant>
+        whisperKitDownloadBase.appendingPathComponent("models/argmaxinc/whisperkit-coreml/\(variant)")
     }
 
     // MARK: - Checks
@@ -579,10 +632,7 @@ class ModelManager: ObservableObject {
         if let cached = whisperModelFolder, FileManager.default.fileExists(atPath: cached.path) {
             return cached
         }
-        let base = whisperKitDownloadBase
-        // WhisperKit downloads to: base/models/argmaxinc/whisperkit-coreml/openai_whisper-large-v3_turbo
-        let expected = base
-            .appendingPathComponent("models/argmaxinc/whisperkit-coreml/openai_whisper-large-v3_turbo")
+        let expected = whisperModelFolder(for: whisperVariant)
         if FileManager.default.fileExists(atPath: expected.path) {
             whisperModelFolder = expected
             return expected
