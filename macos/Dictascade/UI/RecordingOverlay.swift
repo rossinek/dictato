@@ -1,52 +1,96 @@
 import KeyboardShortcuts
 import SwiftUI
 
+/// What the overlay shows. While the panel hides, AppState is already idle; the
+/// overlay keeps the last visible status so it does not flash "Recording..." (and,
+/// in the full style, the mode pill) for the moment before the panel disappears.
+struct OverlayStatus: Equatable {
+    enum Phase: Equatable {
+        case recording, paused, transcribing, postProcessing, error
+    }
+
+    var phase: Phase
+    var errorMessage = ""
+    var hasFailedRecording = false
+    var microphoneName: String?
+
+    @MainActor init?(_ state: AppState) {
+        if state.isError {
+            phase = .error
+        } else if state.isPaused {
+            phase = .paused
+        } else if state.isRecording {
+            phase = .recording
+        } else if state.isPostProcessing {
+            phase = .postProcessing
+        } else if state.isTranscribing || state.isModelLoading {
+            phase = .transcribing
+        } else {
+            return nil
+        }
+        errorMessage = state.errorMessage
+        hasFailedRecording = state.hasFailedRecording
+        microphoneName = phase == .recording || phase == .paused ? state.activeInputDeviceName : nil
+    }
+
+    init(phase: Phase) {
+        self.phase = phase
+    }
+
+    var dotColor: Color {
+        switch phase {
+        case .error, .recording: .red
+        case .paused: .yellow
+        case .postProcessing: .blue
+        case .transcribing: .orange
+        }
+    }
+
+    var text: String {
+        switch phase {
+        case .error: errorMessage.isEmpty ? "Transcription failed" : errorMessage
+        case .paused: "Paused"
+        case .postProcessing: "Post-processing..."
+        case .transcribing: "Transcribing..."
+        case .recording: "Recording..."
+        }
+    }
+}
+
 struct RecordingOverlay: View {
     @ObservedObject private var appState = AppState.shared
     @AppStorage(OverlayStyle.defaultsKey) private var style: OverlayStyle = .full
+    @State private var lastStatus = OverlayStatus(phase: .recording)
+
+    private var status: OverlayStatus { OverlayStatus(appState) ?? lastStatus }
 
     var body: some View {
-        switch style {
-        case .full: FullRecordingOverlay(appState: appState)
-        case .mini: MiniRecordingOverlay(appState: appState)
+        Group {
+            switch style {
+            case .full: FullRecordingOverlay(appState: appState, status: status)
+            case .mini: MiniRecordingOverlay(appState: appState, status: status)
+            }
         }
-    }
-
-    static func dotColor(for state: AppState) -> Color {
-        if state.isError { return .red }
-        if state.isPaused { return .yellow }
-        if state.isPostProcessing { return .blue }
-        if state.isTranscribing { return .orange }
-        return .red
-    }
-
-    static func statusText(for state: AppState) -> String {
-        if state.isError {
-            return state.errorMessage.isEmpty ? "Transcription failed" : state.errorMessage
+        .onAppear { if let current = OverlayStatus(appState) { lastStatus = current } }
+        .onChange(of: OverlayStatus(appState)) { _, current in
+            if let current { lastStatus = current }
         }
-        if state.isPaused { return "Paused" }
-        if state.isPostProcessing { return "Post-processing..." }
-        if state.isTranscribing { return "Transcribing..." }
-        return "Recording..."
     }
 }
 
 private struct FullRecordingOverlay: View {
     @ObservedObject var appState: AppState
+    let status: OverlayStatus
     @State private var pulse = false
-    @Environment(\.colorScheme) private var colorScheme
 
-    private var isRecording: Bool { appState.isRecording }
-    private var isPaused: Bool { appState.isPaused }
-    private var isTranscribing: Bool { appState.isTranscribing }
-    private var isPostProcessing: Bool { appState.isPostProcessing }
-    private var isError: Bool { appState.isError }
+    private var isRecording: Bool { status.phase == .recording }
+    private var isPaused: Bool { status.phase == .paused }
+    private var isTranscribing: Bool { status.phase == .transcribing }
+    private var isPostProcessing: Bool { status.phase == .postProcessing }
+    private var isError: Bool { status.phase == .error }
 
     /// Microphone name above the visualizer, styled like the shortcut descriptions.
-    private var microphoneName: String? {
-        guard isRecording || isPaused else { return nil }
-        return appState.activeInputDeviceName
-    }
+    private var microphoneName: String? { status.microphoneName }
 
     private static let microphoneLabelHeight: CGFloat = 11
     private static let visualizerOverflow: CGFloat = 18
@@ -143,9 +187,9 @@ private struct FullRecordingOverlay: View {
           }
     }
 
-    private var dotColor: Color { RecordingOverlay.dotColor(for: appState) }
+    private var dotColor: Color { status.dotColor }
 
-    private var statusText: String { RecordingOverlay.statusText(for: appState) }
+    private var statusText: String { status.text }
 
     private var shortcutLabel: String {
         if let shortcut = KeyboardShortcuts.getShortcut(for: .toggleRecording) {
@@ -165,7 +209,7 @@ private struct FullRecordingOverlay: View {
             var errorActions = [
                 Action(key: "esc", label: "Dismiss") { AppState.shared.dismissError() },
             ]
-            if appState.hasFailedRecording {
+            if status.hasFailedRecording {
                 errorActions.append(Action(key: "⏎", label: "Save recording") { AppState.shared.saveFailedRecording() })
             }
             return errorActions

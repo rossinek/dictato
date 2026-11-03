@@ -159,6 +159,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         stateObservation = Task { @MainActor [weak self] in
             var wasVisible = false
+            var wasError = false
 
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(100))
@@ -177,6 +178,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 } else if shouldShow {
                     resizePanel()
                 }
+
+                // Shake once when a failure appears, after the error layout was sized.
+                if appState.isError && !wasError {
+                    Task { @MainActor [weak self] in
+                        try? await Task.sleep(for: .milliseconds(120))
+                        self?.resizePanel()
+                        self?.panel?.shake()
+                    }
+                }
+                wasError = appState.isError
             }
         }
     }
@@ -192,7 +203,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @MainActor
     private func resizePanel() {
-        guard let panel, let contentView = panel.contentView else { return }
+        guard let panel, !panel.isShaking, let contentView = panel.contentView else { return }
         let size = contentView.fittingSize
         guard size.width > 0, size.height > 0 else { return }
         let currentSize = panel.frame.size

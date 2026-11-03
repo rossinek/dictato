@@ -278,6 +278,29 @@ class FloatingPanel: NSPanel {
         shouldSnap = false
     }
 
+    private(set) var isShaking = false
+
+    /// Shakes the whole panel horizontally (damped sine, ~0.45 s) and puts it back
+    /// exactly where it was. Callers skip resizing while it runs.
+    @MainActor func shake() {
+        guard !isShaking, !isDragging else { return }
+        isShaking = true
+        let origin = frame.origin
+        let duration = 0.45, amplitude: CGFloat = 7, frequency = 5.5
+        Task { @MainActor [weak self] in
+            let start = CACurrentMediaTime()
+            while let self {
+                let t = CACurrentMediaTime() - start
+                guard t < duration else { break }
+                let offset = amplitude * CGFloat(sin(2 * .pi * frequency * t) * (1 - t / duration))
+                self.setFrameOrigin(NSPoint(x: origin.x + offset, y: origin.y))
+                try? await Task.sleep(for: .milliseconds(8))
+            }
+            self?.setFrameOrigin(origin)
+            self?.isShaking = false
+        }
+    }
+
     /// Resizes around the anchor: the top edge and horizontal center stay put, so
     /// the pill does not move when the panel grows or shrinks.
     func resize(to size: NSSize) {

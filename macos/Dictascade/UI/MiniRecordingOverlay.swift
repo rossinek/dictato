@@ -18,10 +18,11 @@ enum OverlayStyle: String, CaseIterable, Identifiable {
 }
 
 /// Compact overlay: a small pill with the visualizer while recording and a status
-/// dot otherwise. Elements keep fixed slots (cancel/dismiss left, dot centered, save
-/// right), so nothing shifts and the pill never changes size between states.
+/// dot otherwise. Actions appear only on hover, over a light overlay, in fixed slots
+/// (cancel/dismiss left, save right), so nothing shifts and the pill never resizes.
 struct MiniRecordingOverlay: View {
     @ObservedObject var appState: AppState
+    let status: OverlayStatus
     @State private var pulse = false
     @State private var isHovering = false
     @State private var flashedModeName: String?
@@ -32,21 +33,24 @@ struct MiniRecordingOverlay: View {
     private static let visualizerBand: CGFloat = 19
     private static let visualizerOverflow: CGFloat = 18
 
-    private var isRecording: Bool { appState.isRecording }
-    private var isError: Bool { appState.isError }
+    private var phase: OverlayStatus.Phase { status.phase }
 
     var body: some View {
         ZStack {
-            if isRecording {
+            if phase == .recording {
                 // Same bar size as the full pill; the capsule clips enlarged edge bars.
                 AudioVisualizerView(meter: appState.audioLevelMeter, bandHeight: Self.visualizerBand)
                     .frame(width: Self.size.width, height: Self.visualizerBand + 2 * Self.visualizerOverflow)
             } else {
-                statusRow
+                Circle()
+                    .fill(status.dotColor)
+                    .frame(width: 10, height: 10)
+                    .scaleEffect(phase == .paused || phase == .error ? 1.0 : (pulse ? 1.3 : 1.0))
+                    .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: pulse)
             }
 
-            if isRecording && isHovering && flashedModeName == nil {
-                recordingActions
+            if isHovering && flashedModeName == nil {
+                actions
                     .transition(.opacity)
             }
 
@@ -66,6 +70,7 @@ struct MiniRecordingOverlay: View {
         .clipShape(.capsule)
         .glassEffect(.regular, in: .capsule)
         .contentShape(.capsule)
+        .help(phase == .recording ? "" : status.text)
         .onHover { hovering in
             withAnimation(.easeInOut(duration: 0.15)) { isHovering = hovering }
         }
@@ -77,67 +82,50 @@ struct MiniRecordingOverlay: View {
         }
     }
 
-    // MARK: - Status (paused, transcribing, post-processing, error)
+    // MARK: - Hover actions
 
-    private var statusRow: some View {
-        HStack(spacing: 0) {
-            slot {
-                iconButton("xmark", help: cancelHelp, action: cancel)
-            }
-            slot {
-                Circle()
-                    .fill(RecordingOverlay.dotColor(for: appState))
-                    .frame(width: 10, height: 10)
-                    .scaleEffect(appState.isPaused || isError ? 1.0 : (pulse ? 1.3 : 1.0))
-                    .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: pulse)
-                    .help(RecordingOverlay.statusText(for: appState))
-            }
-            slot {
-                if isError && appState.hasFailedRecording {
-                    Button { appState.saveFailedRecording() } label: {
-                        FloppyDiskIcon()
-                            .frame(width: 11, height: 11)
-                            .foregroundStyle(.secondary)
-                            .frame(width: Self.slotWidth, height: Self.slotWidth)
-                            .contentShape(Rectangle())
+    private var actions: some View {
+        ZStack {
+            Rectangle().fill(.background.opacity(0.55))
+            HStack(spacing: 0) {
+                slot { iconButton("xmark", help: cancelHelp, action: cancel) }
+                Spacer(minLength: 0)
+                slot {
+                    switch phase {
+                    case .recording:
+                        iconButton("checkmark", help: "Finish") { appState.toggleRecording() }
+                    case .error where status.hasFailedRecording:
+                        Button { appState.saveFailedRecording() } label: {
+                            FloppyDiskIcon()
+                                .frame(width: 10, height: 10)
+                                .foregroundStyle(.secondary)
+                                .frame(width: Self.slotWidth, height: Self.slotWidth)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help("Save recording")
+                    default:
+                        Color.clear
                     }
-                    .buttonStyle(.plain)
-                    .help("Save recording")
-                } else {
-                    // Keeps three slots so the dot stays centered.
-                    Color.clear
                 }
             }
+            .padding(.horizontal, (Self.size.width - 3 * Self.slotWidth) / 2)
         }
     }
 
     private var cancelHelp: String {
-        if isError { return "Dismiss" }
-        if appState.isPaused { return "Discard recording" }
-        return "Cancel"
-    }
-
-    private func cancel() {
-        if isError {
-            appState.dismissError()
-        } else if appState.isPaused {
-            appState.discardRecording()
-        } else {
-            appState.cancelTranscription()
+        switch phase {
+        case .error: "Dismiss"
+        case .recording, .paused: "Discard recording"
+        case .transcribing, .postProcessing: "Cancel"
         }
     }
 
-    // MARK: - Recording hover actions
-
-    private var recordingActions: some View {
-        ZStack {
-            Rectangle().fill(.background.opacity(0.55))
-            HStack(spacing: 0) {
-                slot { iconButton("xmark", help: "Discard recording") { appState.discardRecording() } }
-                Spacer(minLength: 0)
-                slot { iconButton("checkmark", help: "Finish") { appState.toggleRecording() } }
-            }
-            .padding(.horizontal, (Self.size.width - 3 * Self.slotWidth) / 2)
+    private func cancel() {
+        switch phase {
+        case .error: appState.dismissError()
+        case .recording, .paused: appState.discardRecording()
+        case .transcribing, .postProcessing: appState.cancelTranscription()
         }
     }
 
