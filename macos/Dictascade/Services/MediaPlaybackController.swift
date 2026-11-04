@@ -166,7 +166,7 @@ final class MediaPlaybackController {
         return await withCheckedContinuation { continuation in
             request.continuation = continuation
             adapter.getTrackInfo { info in
-                MainActor.assumeIsolated { request.finish(info?.payload) }
+                MainActor.assumeIsolated { _ = request.finish(info?.payload) }
             }
             Task {
                 try? await Task.sleep(for: Self.stateTimeout)
