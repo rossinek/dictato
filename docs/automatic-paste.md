@@ -101,7 +101,7 @@ straight quotes into smart quotes, and a typed Return executes terminal commands
 ## Current behaviour
 
 - `PasteService` chooses a strategy before touching the clipboard: the application's
-  insertion method from Settings (Automatic / Paste / Type), otherwise **type** when
+  insertion method from Settings (Automatic / Paste / Type / Type Keys), otherwise **type** when
   `ChromiumEngineDetector` finds a Chromium 155–156 engine in the frontmost app bundle
   (`Contents/Frameworks/*.framework/Versions/<a.b.c.d>`, any version present), otherwise
   the unchanged clipboard paste. The workaround disables itself once a browser ships 157.
@@ -109,6 +109,22 @@ straight quotes into smart quotes, and a typed Return executes terminal commands
   line breaks as Shift+Return (modifier on key-down only, as with paste shortcuts), stops
   when focus moves or a modifier is held, and then copies the full text to the clipboard.
   Typing does not use the clipboard; the previous paste's pending restore is applied first.
+- **Type Keys** (per-app setting only, `KeyboardTyper.Mode.keyCodes`): some apps read the
+  virtual key code and ignore the event's Unicode string, so **Type** inserts one "a" per
+  event (virtual key 0 = A). Typical cases: remote desktops and virtual machines, terminals
+  and toolkits with their own key handling (SDL/GLFW/Qt, some Java apps). `KeyLayoutMap`
+  inverts the current layout with `UCKeyTranslate` (no modifiers, Shift, Option,
+  Shift+Option; keypad, control outputs and dead keys skipped) and each character is sent
+  as real modifier key presses (`flagsChanged`, Shift 56 / Option 58), the key with the
+  Unicode string attached, then modifier releases; the last event has empty flags.
+  Characters the layout cannot produce without a dead key (e.g. é, ü, emoji on Polish
+  Pro) fall back to Unicode events and are counted in the log. In a remote session the
+  result also depends on the remote layout (macOS Option+A for "ą" is Alt+A on Windows,
+  where Polish uses AltGr). Unicode typing stays the default: it is layout-independent,
+  bypasses input methods, sends 20 units per event and never presses modifiers.
+  Verified 2026-11-04 in TextEdit (Polish Pro) with the Unicode string removed from the
+  events: Polish letters, Shift/Option symbols, em dash and Shift+Return line breaks were
+  inserted correctly and the modifier flags were clear afterwards.
 - Do not add delays, Accessibility menu presses, or double pastes as a fix: they were
   measured above, and a double paste duplicates text wherever the first paste succeeds.
 

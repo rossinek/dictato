@@ -7,14 +7,20 @@ enum TextInsertionMethod: String, Codable, CaseIterable, Identifiable {
     case automatic
     case paste
     case type
+    /// Types physical keys of the current layout, for apps that ignore the Unicode
+    /// text of key events and insert "a" for every Unicode event.
+    case typeKeys
 
     var id: String { rawValue }
+
+    var isTyping: Bool { self == .type || self == .typeKeys }
 
     var title: String {
         switch self {
         case .automatic: "Automatic"
         case .paste: "Paste"
         case .type: "Type"
+        case .typeKeys: "Type Keys"
         }
     }
 }

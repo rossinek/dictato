@@ -340,10 +340,10 @@ private struct ApplicationPasteExceptionRow: View {
             .labelsHidden()
             .pickerStyle(.menu)
             .fixedSize()
-            .help("Automatic pastes, except in browsers that drop automatic pastes. Type sends text as keystrokes without using the clipboard.")
+            .help("Automatic pastes, except in browsers that drop automatic pastes. Type sends text as keystrokes without using the clipboard. Type Keys presses the keys of the current keyboard layout, for apps (remote desktops, virtual machines, some terminals) where Type inserts only \"aaa\".")
 
             KeyboardShortcuts.Recorder(for: exception.shortcutName)
-                .disabled(exception.insertionMethod == .type)
+                .disabled(exception.insertionMethod.isTyping)
 
             Button(role: .destructive, action: onDelete) {
                 Image(systemName: "trash")

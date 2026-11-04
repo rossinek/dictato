@@ -86,6 +86,7 @@ targets:
       - Dictascade/Services/PasteShortcutEvents.swift
       - Dictascade/Services/ChromiumEngineDetector.swift
       - Dictascade/Services/KeyboardTyper.swift
+      - Dictascade/Services/KeyLayoutMap.swift
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES

@@ -13,7 +13,7 @@ final class PasteService {
 
     private enum InsertionStrategy {
         case paste
-        case type(reason: String)
+        case type(KeyboardTyper.Mode, reason: String)
     }
 
     private enum Readiness {
@@ -48,8 +48,8 @@ final class PasteService {
                     targetPID: targetPID,
                     clipboardVersion: clipboardVersion
                 )
-            case .type(let reason):
-                await typeText(text, reason: reason, targetPID: targetPID, clipboardVersion: clipboardVersion)
+            case .type(let mode, let reason):
+                await typeText(text, mode: mode, reason: reason, targetPID: targetPID, clipboardVersion: clipboardVersion)
             }
         }
     }
@@ -61,13 +61,14 @@ final class PasteService {
         if let exception = application?.bundleIdentifier.flatMap({ ApplicationPasteExceptionStore.exception(for: $0) }) {
             switch exception.insertionMethod {
             case .paste: return .paste
-            case .type: return .type(reason: "application setting for \(bundleIdentifier)")
+            case .type: return .type(.unicode, reason: "application setting for \(bundleIdentifier)")
+            case .typeKeys: return .type(.keyCodes, reason: "application setting (keys) for \(bundleIdentifier)")
             case .automatic: break
             }
         }
         if let applicationURL = application?.bundleURL,
            let version = ChromiumEngineDetector.affectedChromiumVersion(inApplicationAt: applicationURL) {
-            return .type(reason: "\(bundleIdentifier) embeds Chromium \(version), which drops automatic pastes")
+            return .type(.unicode, reason: "\(bundleIdentifier) embeds Chromium \(version), which drops automatic pastes")
         }
         return .paste
     }
@@ -93,6 +94,7 @@ final class PasteService {
 
     private static func typeText(
         _ text: String,
+        mode: KeyboardTyper.Mode,
         reason: String,
         targetPID: pid_t?,
         clipboardVersion: Int
@@ -118,7 +120,7 @@ final class PasteService {
         current = nil
 
         log.info("Typing transcription: \(reason, privacy: .public)")
-        let result = await KeyboardTyper.type(text, targetPID: targetPID) { physicalModifiersArePressed }
+        let result = await KeyboardTyper.type(text, mode: mode, targetPID: targetPID) { physicalModifiersArePressed }
         switch result {
         case .completed:
             log.info("Typed transcription into \(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "unknown", privacy: .public)")

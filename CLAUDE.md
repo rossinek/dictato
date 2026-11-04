@@ -50,7 +50,7 @@ xcodebuild -project Dictascade.xcodeproj -scheme Dictascade -destination 'platfo
 3. Model preloading begins in the background when recording starts (via `ModelManager.preload()`)
 4. If the user changes modes mid-recording, the previous model load is cancelled and the new one starts
 5. On stop, `AppState` awaits model load completion, then passes accumulated `[Float]` samples to the loaded engine
-6. Result is inserted at the cursor via `PasteService`: clipboard + CGEvent Cmd+V, or Unicode typing (`KeyboardTyper`) for Chromium 155–156 browsers and apps set to "Type" (see docs/automatic-paste.md)
+6. Result is inserted at the cursor via `PasteService`: clipboard + CGEvent Cmd+V, or Unicode typing (`KeyboardTyper`) for Chromium 155–156 browsers and apps set to "Type", or layout key codes (`KeyLayoutMap`) for apps set to "Type Keys" (see docs/automatic-paste.md)
 7. Model is unloaded from RAM after transcription (Whisper is held for 60 s first, see below)
 8. Transcription is saved to history
 
@@ -81,7 +81,8 @@ macos/Dictascade/
 │   ├── ModelManager.swift        # Multi-engine abstraction (WhisperKit + FluidAudio)
 │   ├── LLMService.swift          # OpenAI/Groq post-processing
 │   ├── PasteService.swift        # Clipboard + CGEvent Cmd+V
-│   ├── KeyboardTyper.swift       # Unicode typing fallback (no clipboard)
+│   ├── KeyboardTyper.swift       # Unicode / key-code typing fallback (no clipboard)
+│   ├── KeyLayoutMap.swift        # Character → key + Shift/Option in the current layout
 │   ├── ChromiumEngineDetector.swift # Detects Chromium 155–156 (drops synthetic pastes)
 │   ├── PermissionsService.swift  # Mic & accessibility permission checks
 │   ├── InputDevicePreference.swift # Microphone priority list + resolver (pure, unit-tested)
