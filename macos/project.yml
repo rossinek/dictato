@@ -71,6 +71,7 @@ targets:
     sources:
       - SilenceTrimmerTests
       - Dictascade/Services/SilenceTrimmer.swift
+      - Dictascade/Services/SpeechCropper.swift
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES

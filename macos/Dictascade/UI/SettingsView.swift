@@ -14,26 +14,8 @@ struct SettingsView: View {
     @State private var pendingConflictItem: PendingConflict?
     @State private var applicationPasteExceptions = ApplicationPasteExceptionStore.load()
 
-    fileprivate static let languages: [(String?, String)] = [
-        (nil, "Auto-detect"),
-        ("en", "English"),
-        ("es", "Spanish"),
-        ("fr", "French"),
-        ("de", "German"),
-        ("it", "Italian"),
-        ("pt", "Portuguese"),
-        ("nl", "Dutch"),
-        ("ja", "Japanese"),
-        ("ko", "Korean"),
-        ("zh", "Chinese"),
-        ("ar", "Arabic"),
-        ("ru", "Russian"),
-        ("hi", "Hindi"),
-        ("pl", "Polish"),
-        ("sv", "Swedish"),
-        ("uk", "Ukrainian"),
-        ("tr", "Turkish"),
-    ]
+    fileprivate static let languages: [(String?, String)] =
+        [(nil, "Auto-detect")] + TranscriptionLanguage.all.map { ($0.code, $0.name) }
 
     var body: some View {
         Form {
@@ -527,7 +509,7 @@ private struct ModelRow: View {
                         .font(.system(size: 13))
                 }
                 .buttonStyle(.borderless)
-                .help("Whisper acceleration settings")
+                .help("Whisper settings")
                 .sheet(isPresented: $showWhisperSettings) {
                     WhisperAccelerationPanel(modelManager: modelManager)
                 }
@@ -719,8 +701,11 @@ private struct WhisperAccelerationPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Whisper Acceleration")
+            Text("Whisper Settings")
                 .font(.title3.bold())
+
+            Text("Acceleration")
+                .font(.headline)
 
             VStack(alignment: .leading, spacing: 12) {
                 ForEach(WhisperAcceleration.allCases) { acceleration in
@@ -737,6 +722,10 @@ private struct WhisperAccelerationPanel: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
+            Divider()
+
+            WhisperAutoDetectLanguagesPicker(modelManager: modelManager)
+
             HStack {
                 Spacer()
                 Button("Done") { dismiss() }
@@ -745,6 +734,47 @@ private struct WhisperAccelerationPanel: View {
         }
         .padding(20)
         .frame(width: 540)
+    }
+}
+
+/// Languages Whisper picks from when a mode's language is Auto-detect.
+private struct WhisperAutoDetectLanguagesPicker: View {
+    @ObservedObject var modelManager: ModelManager
+    @State private var selection = Set(WhisperAutoDetectLanguages.current)
+
+    private let columns = [GridItem(.adaptive(minimum: 110), alignment: .leading)]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Auto-detect Languages")
+                .font(.headline)
+
+            LazyVGrid(columns: columns, alignment: .leading, spacing: 6) {
+                ForEach(TranscriptionLanguage.all, id: \.code) { language in
+                    Toggle(language.name, isOn: binding(for: language.code))
+                        .toggleStyle(.checkbox)
+                }
+            }
+
+            Text(selection.isEmpty
+                 ? "None selected: Whisper detects any of its ~100 languages, so short or quiet recordings may come out in a wrong language."
+                 : "Modes set to Auto-detect transcribe in the most likely of these languages. Recordings in other languages need a mode with that language set.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func binding(for code: String) -> Binding<Bool> {
+        Binding {
+            selection.contains(code)
+        } set: { isOn in
+            if isOn { selection.insert(code) } else { selection.remove(code) }
+            // Keep the Settings list order for a stable stored value.
+            modelManager.setWhisperAutoDetectLanguages(
+                TranscriptionLanguage.all.map(\.code).filter(selection.contains)
+            )
+        }
     }
 }
 

@@ -499,6 +499,10 @@ class AppState: ObservableObject {
             } catch {
                 log.error("Transcription failed: \(error)")
                 modelManager.unloadCurrent()
+                if case ModelError.noSpeechDetected = error {
+                    // The recording can still be saved in case the detector missed speech.
+                    errorMessage = error.localizedDescription
+                }
                 failedSamples = samples
                 isTranscribing = false
                 isModelLoading = false

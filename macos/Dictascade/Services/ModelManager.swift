@@ -247,6 +247,8 @@ class ModelManager: ObservableObject {
             // Discard instance — we only needed the compilation cache
             _ = kit
             log.info("WhisperKit model prewarmed")
+            // Fetch the speech detector now, so the first recording does not wait for it.
+            loadSpeechDetector()
 
             statuses[.whisperKit] = .downloaded
         } catch {
@@ -285,6 +287,8 @@ class ModelManager: ObservableObject {
                     try FileManager.default.removeItem(at: base)
                 }
                 whisperModelFolder = nil
+                // Its model files lived in the folder just removed.
+                speechDetector = nil
             case .fluidAudio, .parakeetUltra:
                 let dir = parakeetDirectory(for: engine)
                 if FileManager.default.fileExists(atPath: dir.path) {
@@ -403,9 +407,10 @@ class ModelManager: ObservableObject {
     /// short (~0.6 s from the Core ML cache) and the result is held for reuse.
     private func loadWhisperKit() async throws {
         cancelWhisperRelease()
-        if whisperKit != nil, loadedWhisperAcceleration != WhisperAcceleration.current {
+        if whisperKit != nil, !isHeldWhisperCurrent {
             releaseWhisper()
         }
+        loadSpeechDetector()
         if whisperKit != nil { return }
         let task = whisperLoadTask ?? makeWhisperLoadTask(acceleration: .current)
         whisperLoadTask = task
@@ -437,6 +442,14 @@ class ModelManager: ObservableObject {
             // Released (hold expired, model deleted, setting changed) while loading.
             try Task.checkCancellation()
             let loaded = CFAbsoluteTimeGetCurrent() - start
+            let languages = WhisperAutoDetectLanguages.current
+            if !languages.isEmpty, let tokenizer = kit.tokenizer {
+                if let restricted = LanguageRestrictedTokenizer(tokenizer, languages: languages) {
+                    kit.tokenizer = restricted
+                } else {
+                    log.error("Whisper: no language tokens for \(languages, privacy: .public), detecting any language")
+                }
+            }
             // GPU only: the first encode after every load takes ~5 s; do it here so the
             // transcription waits for it instead of paying it inside the encoder timing.
             if acceleration == .gpu, let encoder = kit.audioEncoder as? AudioEncoder {
@@ -445,9 +458,11 @@ class ModelManager: ObservableObject {
             }
             whisperKit = kit
             loadedWhisperAcceleration = acceleration
+            loadedWhisperLanguages = languages
             isWhisperEncoderOnGPU = acceleration == .gpu
             log.notice("""
-                Whisper: loaded (\(acceleration.rawValue, privacy: .public)) in \
+                Whisper: loaded (\(acceleration.rawValue, privacy: .public), \
+                languages \(languages.isEmpty ? "any" : languages.joined(separator: ","), privacy: .public)) in \
                 \(String(format: "%.2f", loaded), privacy: .public) s, \
                 ready after \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - start), privacy: .public) s
                 """)
@@ -495,9 +510,27 @@ class ModelManager: ObservableObject {
     /// use is released instead of held after its transcription.
     func setWhisperAcceleration(_ acceleration: WhisperAcceleration) {
         UserDefaults.standard.set(acceleration.rawValue, forKey: WhisperAcceleration.defaultsKey)
-        guard whisperKit != nil, loadedWhisperAcceleration != acceleration, whisperReleaseTask != nil else { return }
         log.notice("Whisper: acceleration changed to \(acceleration.rawValue, privacy: .public)")
+        releaseIdleWhisperIfOutdated()
+    }
+
+    /// Applies a new auto-detect language set like `setWhisperAcceleration`: the set is
+    /// fixed per loaded instance (see `LanguageRestrictedTokenizer`).
+    func setWhisperAutoDetectLanguages(_ languages: [String]) {
+        UserDefaults.standard.set(languages, forKey: WhisperAutoDetectLanguages.defaultsKey)
+        log.notice("Whisper: auto-detect languages changed to \(languages.joined(separator: ","), privacy: .public)")
+        releaseIdleWhisperIfOutdated()
+    }
+
+    private func releaseIdleWhisperIfOutdated() {
+        guard whisperKit != nil, !isHeldWhisperCurrent, whisperReleaseTask != nil else { return }
         releaseWhisper()
+    }
+
+    /// Whether the loaded instance matches the current acceleration and language settings.
+    private var isHeldWhisperCurrent: Bool {
+        loadedWhisperAcceleration == WhisperAcceleration.current
+            && Set(loadedWhisperLanguages) == Set(WhisperAutoDetectLanguages.current)
     }
 
     // MARK: - Whisper hold & GPU encoder
@@ -514,6 +547,7 @@ class ModelManager: ObservableObject {
     private var isWhisperTranscribing = false
     private var isWhisperEncoderOnGPU = false
     private var loadedWhisperAcceleration: WhisperAcceleration = .hybrid
+    private var loadedWhisperLanguages: [String] = []
     private var memoryPressureSource: DispatchSourceMemoryPressure?
 
     /// Loads a second copy of the encoder on the GPU and swaps it in once its first
@@ -572,7 +606,7 @@ class ModelManager: ObservableObject {
 
     private func scheduleWhisperRelease() {
         guard whisperKit != nil || whisperLoadTask != nil else { return }
-        if whisperKit != nil, loadedWhisperAcceleration != WhisperAcceleration.current {
+        if whisperKit != nil, !isHeldWhisperCurrent {
             releaseWhisper()
             return
         }
@@ -603,6 +637,44 @@ class ModelManager: ObservableObject {
         isWhisperEncoderOnGPU = false
         if loadedEngine == .whisperKit { loadedEngine = nil }
         log.notice("Whisper: released from memory")
+    }
+
+    // MARK: - Speech detection (Whisper)
+
+    private var speechDetector: VadManager?
+    private var speechDetectorTask: Task<Void, Never>?
+
+    /// Silero segmentation for `SpeechCropper`: regions get a small padding of their
+    /// own and are merged across pauses under 0.5 s; one region may span the whole
+    /// recording (Whisper, not the VAD, splits long audio).
+    private static let speechSegmentation = VadSegmentationConfig(
+        minSpeechDuration: 0.15,
+        minSilenceDuration: 0.5,
+        maxSpeechDuration: 30,
+        speechPadding: 0.15
+    )
+
+    /// Loads Silero VAD (~1 MB, downloaded into the Whisper model folder on first use)
+    /// and keeps it for the app's lifetime. Without it Whisper gets the whole recording.
+    private func loadSpeechDetector() {
+        guard speechDetector == nil, speechDetectorTask == nil else { return }
+        let directory = appSupportDirectory
+        speechDetectorTask = Task {
+            let start = CFAbsoluteTimeGetCurrent()
+            do {
+                // Silero's usual threshold (FluidAudio defaults to 0.85); on the test set it
+                // rejected all noise-only recordings and kept single quiet words.
+                let detector = try await VadManager(
+                    config: VadConfig(defaultThreshold: 0.5),
+                    modelDirectory: directory
+                )
+                speechDetector = detector
+                log.notice("Whisper: speech detector loaded in \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - start), privacy: .public) s")
+            } catch {
+                log.error("Whisper: speech detector unavailable, transcribing whole recordings: \(error)")
+            }
+            speechDetectorTask = nil
+        }
     }
 
     /// Drops a held (idle) Whisper early when the system runs low on memory.
@@ -646,6 +718,35 @@ class ModelManager: ObservableObject {
             log.notice("Whisper: recording is digital silence, skipping transcription")
             return ""
         }
+        let start = CFAbsoluteTimeGetCurrent()
+        var audio = Array(samples[audible])
+        var speechNote = "no VAD"
+        if let detector = speechDetector {
+            let regions: [Range<Int>]?
+            do {
+                regions = try await detector.segmentSpeech(audio, config: Self.speechSegmentation).map {
+                    $0.startSample(sampleRate: SpeechCropper.sampleRate)..<$0.endSample(sampleRate: SpeechCropper.sampleRate)
+                }
+            } catch {
+                log.error("Whisper: speech detection failed, transcribing the whole recording: \(error)")
+                regions = nil
+            }
+            if let regions {
+                guard let cropped = SpeechCropper.crop(audio, speech: regions) else {
+                    log.notice("""
+                        Whisper: no speech detected in \(String(format: "%.1f", Double(audio.count) / 16000), privacy: .public) s, \
+                        skipping transcription
+                        """)
+                    throw ModelError.noSpeechDetected
+                }
+                speechNote = String(
+                    format: "VAD kept %.1f of %.1f s in %.2f s",
+                    Double(cropped.count) / 16000, Double(audio.count) / 16000, CFAbsoluteTimeGetCurrent() - start
+                )
+                audio = cropped
+            }
+        }
+
         installPendingGPUEncoder()
         let encoderUnit = isWhisperEncoderOnGPU ? "GPU" : "ANE"
         isWhisperTranscribing = true
@@ -653,9 +754,8 @@ class ModelManager: ObservableObject {
             isWhisperTranscribing = false
             installPendingGPUEncoder()
         }
-        let start = CFAbsoluteTimeGetCurrent()
         let results = try await kit.transcribe(
-            audioArray: Array(samples[audible]),
+            audioArray: audio,
             decodeOptions: DecodingOptions(
                 language: language,
                 // At most one re-decode at a higher temperature: each fallback repeats
@@ -670,8 +770,9 @@ class ModelManager: ObservableObject {
 
         let timings = results.first?.timings
         log.notice("""
-            Whisper: \(String(format: "%.1f", Double(audible.count) / 16000), privacy: .public) s audio \
-            (trimmed \(String(format: "%.1f", Double(samples.count - audible.count) / 16000), privacy: .public) s silence), \
+            Whisper: \(String(format: "%.1f", Double(audio.count) / 16000), privacy: .public) s audio \
+            (trimmed \(String(format: "%.1f", Double(samples.count - audible.count) / 16000), privacy: .public) s digital silence, \
+            \(speechNote, privacy: .public)), \
             total \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - start), privacy: .public) s, \
             encoder \(String(format: "%.2f", timings?.encoding ?? 0), privacy: .public) s (\(encoderUnit, privacy: .public)), \
             decoder \(String(format: "%.2f", (timings?.decodingLoop ?? 0) - (timings?.encoding ?? 0)), privacy: .public) s, \
@@ -921,6 +1022,7 @@ enum ModelError: LocalizedError {
     case modelFilesNotFound(TranscriptionEngine)
     case noModelLoaded
     case noModelLoading
+    case noSpeechDetected
 
     var errorDescription: String? {
         switch self {
@@ -932,6 +1034,8 @@ enum ModelError: LocalizedError {
             "No transcription model is loaded."
         case .noModelLoading:
             "No model is being loaded."
+        case .noSpeechDetected:
+            "No speech detected"
         }
     }
 }
