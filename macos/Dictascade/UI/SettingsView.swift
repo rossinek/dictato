@@ -11,6 +11,8 @@ struct SettingsView: View {
     @AppStorage("vocabulary") private var vocabulary = ""
     @AppStorage("autoPaste") private var autoPaste = true
     @AppStorage("restoreClipboard") private var restoreClipboard = true
+    @AppStorage(MediaPlaybackController.enabledKey) private var pauseMedia = false
+    @AppStorage(MediaPlaybackController.bluetoothOnlyKey) private var pauseMediaOnlyForBluetooth = true
     @State private var pendingConflictItem: PendingConflict?
     @State private var applicationPasteExceptions = ApplicationPasteExceptionStore.load()
 
@@ -31,6 +33,16 @@ struct SettingsView: View {
             }
 
             MicrophoneSettingsSection()
+
+            Section("Media") {
+                Toggle(isOn: $pauseMedia) {
+                    Text("Pause media while recording")
+                    Text("Pauses music or video when recording starts and resumes it afterwards. Bluetooth headsets switch to call quality while their microphone is in use.")
+                }
+                if pauseMedia {
+                    Toggle("Only when recording from a Bluetooth microphone", isOn: $pauseMediaOnlyForBluetooth)
+                }
+            }
 
             // Keyboard Shortcuts
             Section("Keyboard Shortcuts") {

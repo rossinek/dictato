@@ -87,7 +87,8 @@ macos/Dictascade/
 │   ├── PermissionsService.swift  # Mic & accessibility permission checks
 │   ├── InputDevicePreference.swift # Microphone priority list + resolver (pure, unit-tested)
 │   ├── AudioInputDevices.swift   # CoreAudio device list, clamshell check, monitor
-│   └── AudioRecorder.swift       # Microphone capture (AVCaptureSession, device priority, fail-over)
+│   ├── AudioRecorder.swift       # Microphone capture (AVCaptureSession, device priority, fail-over)
+│   └── MediaPlaybackController.swift # Pause Now Playing media while recording (Settings → Media)
 ├── Shortcuts/
 │   └── GlobalShortcut.swift      # KeyboardShortcuts.Name definition
 ├── Models/
@@ -102,6 +103,7 @@ macos/Dictascade/
 - **WhisperKit** (argmaxinc) — Whisper Large V3 Turbo model download and transcription
 - **FluidAudio** (FluidInference) — Parakeet TDT V3 model download and transcription
 - **KeyboardShortcuts** (sindresorhus) — global hotkey with configurable UI
+- **MediaRemoteAdapter** (Beingpax fork of ungive/mediaremote-adapter, pinned by revision, embedded framework) — Now Playing state and pause
 
 #### Data Storage
 - **WhisperKit models:** `~/Library/Application Support/Dictascade/Models/`
@@ -117,6 +119,7 @@ macos/Dictascade/
 - **Accessibility permissions:** Tied to code signature. After rebuilding, you may need to re-add the app in System Settings > Privacy & Security > Accessibility.
 - **Sandbox disabled:** Entitlements file is empty for development. Needs proper sandbox + hardened runtime for distribution.
 - **Microphone capture:** Do not go back to `AVAudioEngine` for recording. Creating its input node opens the system default input first: with AirPods connected that cost ~1 s even when recording from the built-in microphone, a device bound afterwards kept the previous device's format (`-10868`) and Bluetooth profile switches raised NSExceptions from `installTap`. `AVCaptureSession` opens only the chosen device (built-in: first audio after ~80 ms with AirPods connected). Bluetooth headsets still deliver ~1.5–2.2 s of digital silence while switching to the headset profile (firmware; `First audio after N ms` can fire early on a short blip before it). If the switch fails — recording started while the headset was still leaving the profile after the previous recording, e.g. during the completion sound — bluetoothd gives up (`eSCO connect failed`, `audio connection failure`) and the session delivers silence with no error. `AudioRecorder` therefore switches a Bluetooth input that stays below -120 dBFS for 4 s to the next device (built-in microphone preferred), keeping the captured samples.
+- **Pause media while recording:** Settings → Media (`pauseMediaWhileRecording`, off by default; `pauseMediaOnlyForBluetooth`, on by default) — opening a Bluetooth headset's microphone switches it to the hands-free profile and music turns to call quality. Same design as VoiceInk's `PlaybackController`: MediaRemote cannot be used directly by third-party apps since macOS 15.4, so `MediaRemoteAdapter` runs it inside the entitled `/usr/bin/perl` (one-shot `get` ≈ 0.16 s). Pause = explicit MediaRemote pause, only when something plays; resume once a Bluetooth output is back in the playback profile — its nominal sample rate drops while the microphone is in use (AirPods Pro 48 → 24 kHz, Bose 44.1 → 16 kHz) and returns 2.3–2.7 s after the microphone closes, exactly when full quality is audible again (a fixed 1 s delay resumed in call quality); `SampleRateWaiter` listens for the change (≥ 44.1 kHz, 5 s timeout), non-Bluetooth outputs resume immediately — and only if the same app is still Now Playing and still paused, via the hardware Play/Pause key (MediaRemote play without Accessibility). Unknown state → nothing is toggled. A new recording before the resume keeps the music paused. The adapter must stay an embedded framework (`embed: true`): perl loads it from `Contents/Frameworks`. Events are logged at `.notice` (category `MediaPlayback`).
 - **Overlay panel drag & position:** On macOS 27 `isMovableByWindowBackground` no longer moves a window over SwiftUI content; `FloatingPanel.sendEvent` starts `performDrag(with:)` after 3 pt of movement (clicks still reach SwiftUI). The position is stored as a top-center anchor in fractions of the screen's visible frame (`PanelPlacement`), saved only when a drag ends — never on hide — and resizes keep the top edge fixed; this prevents drift and places the pill proportionally on any screen.
 - **State observation:** The floating panel is managed via a polling Task (100ms) watching `AppState` properties. This works but could be replaced with Combine publishers if needed.
 

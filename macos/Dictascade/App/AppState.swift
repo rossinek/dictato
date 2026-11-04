@@ -240,6 +240,7 @@ class AppState: ObservableObject {
             try recorder.start()
             activeInputDeviceName = recorder.deviceName
             isRecording = true
+            MediaPlaybackController.shared.recordingStarted(inputIsBluetooth: recorder.isBluetoothInput)
 
             // Start loading the model in the background while recording
             modelManager.preload(resolvedEngine)
@@ -254,6 +255,7 @@ class AppState: ObservableObject {
     private func stopAudioCapture() {
         recorder.stop()
         activeInputDeviceName = nil
+        MediaPlaybackController.shared.recordingStopped()
     }
 
     private func failAudioCapture(message: String) {

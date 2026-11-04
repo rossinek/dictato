@@ -20,6 +20,8 @@ final class AudioRecorder {
     var onFailure: ((String) -> Void)?
 
     private(set) var deviceName: String?
+    /// The current input is a Bluetooth device (opening it switches a headset to the hands-free profile).
+    var isBluetoothInput: Bool { input?.device.isBluetooth ?? false }
     /// True between `start()` and `stop()`, including while paused.
     var isActive: Bool { session != nil }
 

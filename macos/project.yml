@@ -16,6 +16,11 @@ packages:
   KeyboardShortcuts:
     url: https://github.com/sindresorhus/KeyboardShortcuts.git
     from: "2.0.0"
+  MediaRemoteAdapter:
+    # VoiceInk's Swift Package fork of ungive/mediaremote-adapter (MediaRemote via
+    # the entitled /usr/bin/perl). Pinned by revision: it uses unsafeFlags.
+    url: https://github.com/Beingpax/mediaremote-adapter.git
+    revision: "cf30c4f1af29b5829d859f088f8dbdf12611a046"
 
 targets:
   Dictascade:
@@ -40,6 +45,9 @@ targets:
       - package: WhisperKit
       - package: FluidAudio
       - package: KeyboardShortcuts
+      # Must be an embedded framework: /usr/bin/perl loads it from the app bundle.
+      - package: MediaRemoteAdapter
+        embed: true
 
   VocabularyPolicyTests:
     type: bundle.unit-test
